@@ -1124,10 +1124,20 @@ function spawnPowerUpNearPlayer() {
     
     // Create power-up object
     const powerUpGeometry = new THREE.BoxGeometry(1, 1, 1);
-    const powerUpMaterial = new THREE.MeshStandardMaterial({ color: 0xFFFF00 });
+    const powerUpMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0xFFFF00,
+        emissive: 0xFFFF00,
+        emissiveIntensity: 0.5,
+        transparent: true,
+        opacity: 0.8
+    });
     const powerUp = new THREE.Mesh(powerUpGeometry, powerUpMaterial);
     powerUp.position.copy(powerUpPosition);
     powerUp.userData = { type: 'sniper' };
+    
+    // Add floating animation
+    powerUp.userData.initialY = powerUp.position.y;
+    powerUp.userData.floatOffset = Math.random() * Math.PI * 2;
     
     powerUp.castShadow = true;
     powerUp.receiveShadow = true;
@@ -1584,6 +1594,22 @@ function updateDogBehavior(dog) {
         // Make the dog larger when angry
         if (dog.userData.isAngry) {
             dog.scale.set(1.8, 1.8, 1.8);
+            
+            // Add more aggressive visual effects when angry
+            dog.material.emissive.setHex(0xFF0000);
+            dog.material.emissiveIntensity = 0.8;
+            
+            // Ensure the boss is always visible
+            dog.renderOrder = 1;
+            dog.traverse(function(child) {
+                if (child.isMesh) {
+                    child.renderOrder = 1;
+                    child.material.depthWrite = false;
+                    child.material.depthTest = true;
+                    child.material.transparent = true;
+                    child.material.opacity = 1;
+                }
+            });
         } else {
             dog.scale.set(1.5, 1.5, 1.5);
         }
