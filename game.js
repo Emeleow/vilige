@@ -35,6 +35,16 @@ let houses = []; // Array to store houses for ammo reload
 let animationFrameId = null; // Store animation frame ID for cleanup
 let ammoPickups = []; // Array to store ammo pickups on the ground
 let bossHitCount = 0; // Count hits on boss to track when to reduce health
+// New movement variables
+let isSprinting = false;
+let walkCycle = 0;
+let walkSpeed = 0.15; // Base walking speed
+let sprintMultiplier = 1.6; // Sprint speed multiplier
+let bobAmount = 0.05; // Amount of camera bobbing
+let bobSpeed = 0.1; // Speed of camera bobbing
+let moveDirection = new THREE.Vector3();
+let moveSpeed = 0.15;
+let lastFrameTime = 0;
 
 // Load 3D models
 const modelLoader = new THREE.GLTFLoader();
@@ -579,8 +589,75 @@ function createLeaderDog() {
     scene.add(leader);
     leaderDog = leader;
     
+    // Create boss health bar
+    createBossHealthBar();
+    
     // Show boss alert with pause
     showWarningMessage("Warning: The boss dog has appeared! It is stronger and faster than regular dogs.");
+}
+
+// Create boss health bar
+function createBossHealthBar() {
+    // Create container for boss health bar
+    const bossHealthContainer = document.createElement('div');
+    bossHealthContainer.id = 'bossHealthContainer';
+    bossHealthContainer.style.position = 'absolute';
+    bossHealthContainer.style.top = '10%';
+    bossHealthContainer.style.left = '50%';
+    bossHealthContainer.style.transform = 'translate(-50%, -50%)';
+    bossHealthContainer.style.width = '300px';
+    bossHealthContainer.style.height = '20px';
+    bossHealthContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    bossHealthContainer.style.border = '2px solid white';
+    bossHealthContainer.style.borderRadius = '10px';
+    bossHealthContainer.style.zIndex = '100';
+    
+    // Create boss health bar
+    const bossHealthBar = document.createElement('div');
+    bossHealthBar.id = 'bossHealthBar';
+    bossHealthBar.style.width = '100%';
+    bossHealthBar.style.height = '100%';
+    bossHealthBar.style.backgroundColor = 'red';
+    bossHealthBar.style.borderRadius = '8px';
+    bossHealthContainer.appendChild(bossHealthBar);
+    
+    // Create boss health text
+    const bossHealthText = document.createElement('div');
+    bossHealthText.id = 'bossHealthText';
+    bossHealthText.style.position = 'absolute';
+    bossHealthText.style.top = '50%';
+    bossHealthText.style.left = '50%';
+    bossHealthText.style.transform = 'translate(-50%, -50%)';
+    bossHealthText.style.color = 'white';
+    bossHealthText.style.fontWeight = 'bold';
+    bossHealthText.textContent = 'Boss: 20/20';
+    bossHealthContainer.appendChild(bossHealthText);
+    
+    // Add to document
+    document.body.appendChild(bossHealthContainer);
+}
+
+// Update boss health bar
+function updateBossHealthBar() {
+    if (!leaderDog) return;
+    
+    const healthBar = document.getElementById('bossHealthBar');
+    const healthText = document.getElementById('bossHealthText');
+    
+    if (healthBar && healthText) {
+        const healthPercent = (leaderDog.userData.health / leaderDog.userData.maxHealth) * 100;
+        healthBar.style.width = `${healthPercent}%`;
+        healthText.textContent = `Boss: ${leaderDog.userData.health}/${leaderDog.userData.maxHealth}`;
+        
+        // Change color based on health
+        if (healthPercent > 50) {
+            healthBar.style.backgroundColor = 'red';
+        } else if (healthPercent > 25) {
+            healthBar.style.backgroundColor = 'orange';
+        } else {
+            healthBar.style.backgroundColor = 'darkred';
+        }
+    }
 }
 
 // Start the game
@@ -643,6 +720,12 @@ function restartGame() {
     if (leaderDog) {
         scene.remove(leaderDog);
         leaderDog = null;
+    }
+    
+    // Remove boss health bar
+    const bossHealthContainer = document.getElementById('bossHealthContainer');
+    if (bossHealthContainer) {
+        bossHealthContainer.remove();
     }
     
     // Remove all bandages
@@ -812,30 +895,11 @@ function onMouseDown(event) {
 function onKeyDown(event) {
     if (!gameStarted || gameOver || gamePaused) return;
     
-    const speed = 0.2;
-    const moveDirection = new THREE.Vector3();
-    
     // Track which keys are currently pressed
     if (!window.keysPressed) {
         window.keysPressed = {};
     }
     window.keysPressed[event.code] = true;
-    
-    // Calculate movement direction based on all currently pressed keys
-    if (window.keysPressed['KeyW']) moveDirection.z -= 1;
-    if (window.keysPressed['KeyS']) moveDirection.z += 1;
-    if (window.keysPressed['KeyA']) moveDirection.x -= 1;
-    if (window.keysPressed['KeyD']) moveDirection.x += 1;
-    
-    // Normalize and apply movement
-    if (moveDirection.length() > 0) {
-        moveDirection.normalize();
-        moveDirection.multiplyScalar(speed);
-        
-        // Apply movement in world space
-        camera.position.x += moveDirection.x;
-        camera.position.z += moveDirection.z;
-    }
     
     // Handle other keys
     switch (event.code) {
@@ -844,6 +908,9 @@ function onKeyDown(event) {
                 isJumping = true;
                 jumpHeight = 0;
             }
+            break;
+        case 'ShiftLeft':
+            isSprinting = true;
             break;
         case 'KeyR':
             reload();
@@ -862,14 +929,15 @@ function onKeyDown(event) {
 
 // Handle key up events
 function onKeyUp(event) {
-    // Handle key release events
     if (window.keysPressed) {
         window.keysPressed[event.code] = false;
     }
     
     switch (event.code) {
+        case 'ShiftLeft':
+            isSprinting = false;
+            break;
         case 'Escape':
-            // Prevent default behavior (browser menu)
             event.preventDefault();
             break;
     }
@@ -946,6 +1014,12 @@ function shoot() {
                 document.getElementById('finalScore').textContent = score;
                 document.getElementById('gameOverScreen').style.display = 'flex';
                 showWarningMessage("You won! You defeated the leader dog!");
+                
+                // Remove boss health bar
+                const bossHealthContainer = document.getElementById('bossHealthContainer');
+                if (bossHealthContainer) {
+                    bossHealthContainer.remove();
+                }
             } else {
                 scene.remove(hitDog);
                 dogs = dogs.filter(dog => dog !== hitDog);
@@ -1320,44 +1394,57 @@ function animate() {
     animationFrameId = requestAnimationFrame(animate);
     
     if (gameStarted && !gameOver && !gamePaused) {
+        // Calculate delta time for smooth movement
+        const currentTime = performance.now();
+        const deltaTime = (currentTime - lastFrameTime) / 16.67; // Normalize to ~60fps
+        lastFrameTime = currentTime;
+        
         // Calculate distance traveled
         const currentPosition = camera.position.clone();
         distanceTraveled += currentPosition.distanceTo(lastPosition);
         lastPosition.copy(currentPosition);
         
-        // Handle continuous movement for smooth diagonal movement
+        // Handle movement
         if (window.keysPressed) {
-            const speed = 0.2;
-            const moveDirection = new THREE.Vector3();
+            // Reset movement direction
+            moveDirection.set(0, 0, 0);
             
-            // Calculate movement direction based on all currently pressed keys
+            // Calculate movement direction based on pressed keys
             if (window.keysPressed['KeyW']) moveDirection.z -= 1;
             if (window.keysPressed['KeyS']) moveDirection.z += 1;
             if (window.keysPressed['KeyA']) moveDirection.x -= 1;
             if (window.keysPressed['KeyD']) moveDirection.x += 1;
             
-            // Normalize and apply movement
+            // Normalize movement direction to maintain constant speed (Minecraft style)
             if (moveDirection.length() > 0) {
+                // Normalize the vector to get a unit vector
                 moveDirection.normalize();
-                moveDirection.multiplyScalar(speed);
                 
-                // Apply movement in world space
-                camera.position.x += moveDirection.x;
-                camera.position.z += moveDirection.z;
+                // Apply sprint multiplier if sprinting
+                const currentSpeed = isSprinting ? moveSpeed * sprintMultiplier : moveSpeed;
+                
+                // Apply movement in world space with delta time for smooth movement
+                camera.position.x += moveDirection.x * currentSpeed * deltaTime;
+                camera.position.z += moveDirection.z * currentSpeed * deltaTime;
+                
+                // Update walk cycle for bobbing effect
+                walkCycle += bobSpeed * (isSprinting ? 1.5 : 1) * deltaTime;
+                const bobOffset = Math.sin(walkCycle) * bobAmount;
+                camera.position.y = 1.7 + bobOffset;
             }
         }
         
-        // Handle jumping
+        // Handle jumping and gravity
         if (isJumping) {
             if (jumpHeight < maxJumpHeight) {
-                jumpHeight += jumpSpeed;
-                camera.position.y += jumpSpeed;
+                jumpHeight += jumpSpeed * deltaTime;
+                camera.position.y = 1.7 + jumpHeight + (Math.sin(walkCycle) * bobAmount);
             } else {
                 isJumping = false;
             }
         } else if (camera.position.y > 1.7) {
             // Apply gravity
-            camera.position.y -= gravity;
+            camera.position.y -= gravity * deltaTime;
             if (camera.position.y < 1.7) {
                 camera.position.y = 1.7;
             }
@@ -1399,6 +1486,7 @@ function animate() {
         // Update leader dog behavior
         if (leaderDog && leaderDog.userData.health > 0) {
             updateDogBehavior(leaderDog);
+            updateBossHealthBar();
         }
         
         // Animate bandages (make them float slightly)
