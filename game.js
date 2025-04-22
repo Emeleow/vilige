@@ -3,7 +3,7 @@ let scene, camera, renderer, controls;
 let dogs = [];
 let leaderDog = null;
 let score = 0;
-let ammo = 30;
+let ammo = 100; // Start with 100 ammo
 let gameOver = false;
 let gameStarted = false;
 let gamePaused = false;
@@ -34,6 +34,7 @@ let gravity = 0.05;
 let houses = []; // Array to store houses for ammo reload
 let animationFrameId = null; // Store animation frame ID for cleanup
 let ammoPickups = []; // Array to store ammo pickups on the ground
+let bossHitCount = 0; // Count hits on boss to track when to reduce health
 
 // Load 3D models
 const modelLoader = new THREE.GLTFLoader();
@@ -578,8 +579,8 @@ function createLeaderDog() {
     scene.add(leader);
     leaderDog = leader;
     
-    // Show boss alert
-    alert('Warning: The boss dog has appeared! It is stronger and faster than regular dogs.');
+    // Show boss alert with pause
+    showWarningMessage("Warning: The boss dog has appeared! It is stronger and faster than regular dogs.");
 }
 
 // Start the game
@@ -620,7 +621,7 @@ function startGame() {
 function restartGame() {
     // Reset game variables
     score = 0;
-    ammo = 30;
+    ammo = 100; // Reset to 100 ammo
     gameOver = false;
     gamePaused = false;
     playerHealth = 10;
@@ -631,6 +632,7 @@ function restartGame() {
     explorationTime = 0;
     isJumping = false;
     jumpHeight = 0;
+    bossHitCount = 0; // Reset boss hit count
     
     // Remove all dogs
     dogs.forEach(dog => {
@@ -759,7 +761,7 @@ function exitGame() {
     
     // Reset game variables
     score = 0;
-    ammo = 30;
+    ammo = 100; // Reset to 100 ammo
     gameOver = false;
     playerHealth = 10;
     distanceTraveled = 0;
@@ -895,13 +897,40 @@ function shoot() {
         const hitDog = intersects[0].object;
         
         // Apply damage based on weapon
-        let damage = currentWeapon === 'pistol' ? 50 : 100;
+        let damage = 0;
         
         if (hitDog.userData.type === 'leader') {
-            damage = currentWeapon === 'pistol' ? 20 : 40;
+            // For leader dog, track hits and reduce health every 3 hits
+            bossHitCount++;
+            
+            if (currentWeapon === 'pistol') {
+                // Regular pistol: 3 hits = 1 heart
+                if (bossHitCount % 3 === 0) {
+                    hitDog.userData.health -= 1;
+                }
+            } else if (currentWeapon === 'sniper') {
+                // Sniper rifle: 1 hit = 1 heart
+                hitDog.userData.health -= 1;
+            }
+            
+            // Check if leader dog is at half health
+            if (!hitDog.userData.isAngry && hitDog.userData.health <= hitDog.userData.maxHealth / 2) {
+                hitDog.userData.isAngry = true;
+                hitDog.userData.phase = 2;
+                hitDog.userData.damage = 2.5; // 2.5 hearts
+                hitDog.userData.speed = 0.06; // Faster
+                
+                // Spawn power-up
+                spawnPowerUp();
+                
+                // Show warning with pause
+                showWarningMessage("The leader dog is getting angry! A new weapon has appeared!");
+            }
+        } else {
+            // Regular dogs take full damage
+            damage = currentWeapon === 'pistol' ? 50 : 100;
+            hitDog.userData.health -= damage;
         }
-        
-        hitDog.userData.health -= damage;
         
         // Visual feedback for hit
         const originalColor = hitDog.material.color.getHex();
@@ -916,26 +945,13 @@ function shoot() {
                 gameOver = true;
                 document.getElementById('finalScore').textContent = score;
                 document.getElementById('gameOverScreen').style.display = 'flex';
-                alert('You won! You defeated the leader dog!');
+                showWarningMessage("You won! You defeated the leader dog!");
             } else {
                 scene.remove(hitDog);
                 dogs = dogs.filter(dog => dog !== hitDog);
                 score += 10;
                 updateScoreDisplay();
             }
-        }
-        
-        // Check if leader dog is at half health
-        if (hitDog === leaderDog && !hitDog.userData.isAngry && hitDog.userData.health <= hitDog.userData.maxHealth / 2) {
-            hitDog.userData.isAngry = true;
-            hitDog.userData.phase = 2;
-            hitDog.userData.damage = 2.5; // 2.5 hearts
-            hitDog.userData.speed = 0.06; // Faster
-            
-            // Spawn power-up
-            spawnPowerUp();
-            
-            alert('The leader dog is getting angry! A new weapon has appeared!');
         }
     }
 }
@@ -990,7 +1006,8 @@ function pickupPowerUp() {
         
         powerUpAvailable = false;
         
-        alert('You picked up the sniper rifle!');
+        // Show warning with pause
+        showWarningMessage("You picked up the sniper rifle! This powerful weapon can damage the boss dog with each shot!");
     }
     
     // Check for bandages
@@ -1086,7 +1103,7 @@ function useBandage() {
 
 // Reload function
 function reload() {
-    ammo = 30;
+    ammo = 100;
     updateAmmoDisplay();
 }
 
@@ -1339,29 +1356,8 @@ function animate() {
             if (explorationTime >= explorationDuration) {
                 gamePhase = 1;
                 
-                // Show combat phase message
-                const message = document.createElement('div');
-                message.id = 'phaseMessage';
-                message.style.position = 'absolute';
-                message.style.top = '50%';
-                message.style.left = '50%';
-                message.style.transform = 'translate(-50%, -50%)';
-                message.style.color = 'white';
-                message.style.fontSize = '24px';
-                message.style.textAlign = 'center';
-                message.style.zIndex = '100';
-                message.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-                message.style.padding = '20px';
-                message.style.borderRadius = '10px';
-                message.innerHTML = 'The dogs are becoming aggressive! Be careful!';
-                document.body.appendChild(message);
-                
-                // Remove message after 5 seconds
-                setTimeout(() => {
-                    if (message.parentNode) {
-                        message.parentNode.removeChild(message);
-                    }
-                }, 5000);
+                // Show combat phase message with pause
+                showWarningMessage("The dogs are becoming aggressive! Be careful!");
             }
         }
         
@@ -1537,6 +1533,42 @@ function createNewAmmoPickup() {
     
     scene.add(ammoPickup);
     ammoPickups.push(ammoPickup);
+}
+
+// Function to show warning messages with pause
+function showWarningMessage(message) {
+    // Create warning message element
+    const warningElement = document.createElement('div');
+    warningElement.id = 'warningMessage';
+    warningElement.style.position = 'absolute';
+    warningElement.style.top = '20%';
+    warningElement.style.left = '50%';
+    warningElement.style.transform = 'translate(-50%, -50%)';
+    warningElement.style.color = 'white';
+    warningElement.style.fontSize = '16px';
+    warningElement.style.textAlign = 'center';
+    warningElement.style.zIndex = '100';
+    warningElement.style.fontWeight = 'bold';
+    warningElement.textContent = message;
+    
+    // Add to document
+    document.body.appendChild(warningElement);
+    
+    // Pause game briefly
+    const wasPaused = gamePaused;
+    gamePaused = true;
+    
+    // Remove after 2 seconds
+    setTimeout(() => {
+        if (warningElement.parentNode) {
+            warningElement.parentNode.removeChild(warningElement);
+        }
+        
+        // Resume game if it wasn't paused before
+        if (!wasPaused) {
+            gamePaused = false;
+        }
+    }, 2000);
 }
 
 // Start the game
