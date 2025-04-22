@@ -1113,6 +1113,9 @@ function startVictoryCelebration() {
     // Show victory message
     showVictoryMessage();
     
+    // Create victory fireworks
+    createVictoryFireworks();
+    
     // Pause game for celebration
     gamePaused = true;
     
@@ -1367,12 +1370,26 @@ function showThankYouMessage() {
     thankYouElement.style.borderRadius = '10px';
     thankYouElement.style.width = '80%';
     thankYouElement.style.maxWidth = '600px';
+    thankYouElement.style.boxShadow = '0 0 20px rgba(255, 215, 0, 0.5)';
+    thankYouElement.style.animation = 'pulse 2s infinite';
     thankYouElement.innerHTML = `
-        <h2 style="color: gold; margin-bottom: 20px;">Thank You For Playing!</h2>
-        <p>You have successfully completed Phase 1 of the game.</p>
-        <p>The shotgun is your reward for defeating the leader dog.</p>
-        <p style="margin-top: 30px; font-style: italic;">Created by Mohammed Shaker</p>
+        <h2 style="color: gold; margin-bottom: 20px; text-shadow: 0 0 10px gold;">Congratulations!</h2>
+        <p style="font-size: 28px; color: #FFD700;">You have successfully completed Phase 1!</p>
+        <p style="margin: 20px 0;">The powerful shotgun is your reward for defeating the leader dog.</p>
+        <p style="font-size: 20px; color: #FFA500;">Use it wisely in your future adventures!</p>
+        <p style="margin-top: 30px; font-style: italic; color: #FFD700;">Created by Mohammed Shaker</p>
     `;
+    
+    // Add pulse animation
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes pulse {
+            0% { transform: translate(-50%, -50%) scale(1); }
+            50% { transform: translate(-50%, -50%) scale(1.05); }
+            100% { transform: translate(-50%, -50%) scale(1); }
+        }
+    `;
+    document.head.appendChild(style);
     
     // Add to document
     document.body.appendChild(thankYouElement);
@@ -1381,6 +1398,9 @@ function showThankYouMessage() {
     setTimeout(() => {
         if (thankYouElement.parentNode) {
             thankYouElement.parentNode.removeChild(thankYouElement);
+        }
+        if (style.parentNode) {
+            style.parentNode.removeChild(style);
         }
     }, 10000);
 }
@@ -1764,26 +1784,35 @@ function animate() {
             }
         });
         
-        // Animate victory stars
+        // Animate victory stars and fireworks
         if (victoryCelebration) {
             victoryStars.forEach(star => {
-                // Float up and down
-                star.position.y = star.userData.initialY + Math.sin(Date.now() * 0.002 + star.userData.floatOffset) * 0.5;
-                
-                // Rotate
-                star.rotation.x += star.userData.rotateSpeed;
-                star.rotation.y += star.userData.rotateSpeed;
-                
-                // Pulse
-                const scale = 1 + Math.sin(Date.now() * 0.005) * 0.2;
-                star.scale.set(scale, scale, scale);
+                if (star.userData.type === 'firework') {
+                    // Update firework particles
+                    star.position.add(star.userData.velocity);
+                    star.userData.life -= 0.01;
+                    star.material.opacity = star.userData.life;
+                    
+                    // Remove dead particles
+                    if (star.userData.life <= 0) {
+                        scene.remove(star);
+                        victoryStars = victoryStars.filter(s => s !== star);
+                    }
+                } else {
+                    // Original star animation
+                    star.position.y = star.userData.initialY + Math.sin(Date.now() * 0.002 + star.userData.floatOffset) * 0.5;
+                    star.rotation.x += star.userData.rotateSpeed;
+                    star.rotation.y += star.userData.rotateSpeed;
+                    const scale = 1 + Math.sin(Date.now() * 0.005) * 0.2;
+                    star.scale.set(scale, scale, scale);
+                }
             });
             
             // Check if celebration is over
             if (Date.now() - victoryTime > victoryDuration) {
                 victoryCelebration = false;
                 
-                // Remove victory stars
+                // Remove all victory effects
                 victoryStars.forEach(star => {
                     scene.remove(star);
                 });
@@ -1971,6 +2000,48 @@ function showWarningMessage(message) {
             gamePaused = false;
         }
     }, 2000);
+}
+
+// Create victory fireworks
+function createVictoryFireworks() {
+    // Create 5 firework bursts
+    for (let i = 0; i < 5; i++) {
+        setTimeout(() => {
+            const burstPosition = new THREE.Vector3(
+                camera.position.x + (Math.random() - 0.5) * 20,
+                5 + Math.random() * 5,
+                camera.position.z + (Math.random() - 0.5) * 20
+            );
+            
+            // Create 20 particles per burst
+            for (let j = 0; j < 20; j++) {
+                const particleGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+                const particleMaterial = new THREE.MeshBasicMaterial({
+                    color: new THREE.Color().setHSL(Math.random(), 1, 0.5),
+                    transparent: true,
+                    opacity: 1
+                });
+                const particle = new THREE.Mesh(particleGeometry, particleMaterial);
+                
+                // Random direction
+                const direction = new THREE.Vector3(
+                    Math.random() - 0.5,
+                    Math.random() - 0.5,
+                    Math.random() - 0.5
+                ).normalize();
+                
+                particle.position.copy(burstPosition);
+                particle.userData = {
+                    type: 'firework',
+                    velocity: direction.multiplyScalar(0.1),
+                    life: 1.0
+                };
+                
+                scene.add(particle);
+                victoryStars.push(particle);
+            }
+        }, i * 1000); // Stagger the bursts
+    }
 }
 
 // Start the game
