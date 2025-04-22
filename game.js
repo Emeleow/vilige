@@ -564,8 +564,10 @@ function createLeaderDog() {
         // Fallback to simple geometry if model not loaded
         const leaderGeometry = new THREE.BoxGeometry(2, 2, 4);
         const leaderMaterial = new THREE.MeshStandardMaterial({ 
-            color: 0x8B4513,
-            map: brownDogTexture
+            color: 0xFF0000, // Bright red color for better visibility
+            emissive: 0x330000, // Add slight glow
+            roughness: 0.7,
+            metalness: 0.3
         });
         leader = new THREE.Mesh(leaderGeometry, leaderMaterial);
     }
@@ -579,8 +581,8 @@ function createLeaderDog() {
     
     // Add leader properties
     leader.userData = {
-        health: 20, // 20 hearts
-        maxHealth: 20,
+        health: 30, // Increased to 30 hearts
+        maxHealth: 30, // Increased to 30 hearts
         speed: 0.04,
         type: 'leader',
         lastAttackTime: 0,
@@ -607,6 +609,16 @@ function createLeaderDog() {
         attackPhase: 'approach' // approach, jump, attack, retreat
     };
     
+    // Add glowing effect
+    const glowMaterial = new THREE.MeshBasicMaterial({
+        color: 0xFF0000,
+        transparent: true,
+        opacity: 0.3
+    });
+    const glowGeometry = new THREE.BoxGeometry(2.2, 2.2, 4.2);
+    const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
+    leader.add(glowMesh);
+    
     leader.castShadow = true;
     leader.receiveShadow = true;
     
@@ -617,7 +629,7 @@ function createLeaderDog() {
     createBossHealthBar();
     
     // Show boss alert with pause
-    showWarningMessage("Warning: The boss dog has appeared! It is stronger and faster than regular dogs.");
+    showWarningMessage("Warning: The boss dog has appeared! It has 30 hearts and is stronger than regular dogs.");
 }
 
 // Create boss health bar
@@ -654,7 +666,7 @@ function createBossHealthBar() {
     bossHealthText.style.transform = 'translate(-50%, -50%)';
     bossHealthText.style.color = 'white';
     bossHealthText.style.fontWeight = 'bold';
-    bossHealthText.textContent = 'Boss: 20/20';
+    bossHealthText.textContent = 'Boss: 30/30';
     bossHealthContainer.appendChild(bossHealthText);
     
     // Add to document
@@ -1021,8 +1033,8 @@ function shoot() {
                 hitDog.userData.health -= 1;
             }
             
-            // Check if leader dog is at half health
-            if (!hitDog.userData.isAngry && hitDog.userData.health <= hitDog.userData.maxHealth / 2) {
+            // Check if leader dog is at half health (15 hearts)
+            if (!hitDog.userData.isAngry && hitDog.userData.health <= 15) {
                 hitDog.userData.isAngry = true;
                 hitDog.userData.phase = 2;
                 hitDog.userData.damage = 2.5; // 2.5 hearts
@@ -1533,6 +1545,21 @@ function updateDogBehavior(dog) {
     
     // Special behavior for leader dog
     if (dog.userData.type === 'leader') {
+        // Always maintain visibility
+        dog.material.emissive.setHex(0x330000);
+        
+        // Add pulsing effect based on health
+        const healthPercent = dog.userData.health / dog.userData.maxHealth;
+        const pulseIntensity = 0.3 + (1 - healthPercent) * 0.7; // More intense as health decreases
+        dog.material.emissiveIntensity = pulseIntensity;
+        
+        // Make the dog larger when angry
+        if (dog.userData.isAngry) {
+            dog.scale.set(1.8, 1.8, 1.8);
+        } else {
+            dog.scale.set(1.5, 1.5, 1.5);
+        }
+        
         // Check if recently shot at
         if (now - dog.userData.lastShotTime < dog.userData.shotReactionTime) {
             dog.userData.state = 'aggressive';
