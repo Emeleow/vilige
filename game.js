@@ -498,7 +498,7 @@ function createBandages() {
 
 // Create regular dogs
 function createDogs() {
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 20; i++) { // Increased from 10 to 20 dogs
         let dog;
         
         if (dogModel) {
@@ -542,7 +542,8 @@ function createDogs() {
             jumpSpeed: 0.1,
             jumpCooldown: 2000, // 2 seconds between jumps
             lastJumpTime: 0,
-            attackPhase: 'approach' // approach, jump, attack, retreat
+            attackPhase: 'approach', // approach, jump, attack, retreat
+            hasBitten: false // New property to track if dog has bitten
         };
         
         dog.castShadow = true;
@@ -555,102 +556,65 @@ function createDogs() {
 
 // Create leader dog
 function createLeaderDog() {
-    let leader;
+    const leaderDog = leaderDogModel.clone();
+    leaderDog.scale.set(1.5, 1.5, 1.5);
     
-    if (leaderDogModel) {
-        leader = leaderDogModel.clone();
-        leader.scale.set(1.5, 1.5, 1.5); // Make leader dog much larger
-        
-        // Modify all meshes in the leader dog model to ensure visibility
-        leader.traverse(function(child) {
-            if (child.isMesh) {
-                child.material.depthWrite = false; // Disable depth writing
-                child.material.depthTest = true;   // Keep depth testing
-                child.material.transparent = true; // Enable transparency
-                child.material.opacity = 1;        // Full opacity
-                child.renderOrder = 1;             // Render after other objects
-                child.castShadow = true;
-                child.receiveShadow = true;
-            }
-        });
-    } else {
-        // Fallback to simple geometry if model not loaded
-        const leaderGeometry = new THREE.BoxGeometry(2, 2, 4);
-        const leaderMaterial = new THREE.MeshStandardMaterial({ 
-            color: 0xFF0000, // Bright red color for better visibility
-            emissive: 0x330000, // Add slight glow
-            roughness: 0.7,
-            metalness: 0.3,
-            depthWrite: false, // Disable depth writing
-            depthTest: true,   // Keep depth testing
-            transparent: true, // Enable transparency
-            opacity: 1        // Full opacity
-        });
-        leader = new THREE.Mesh(leaderGeometry, leaderMaterial);
-        leader.renderOrder = 1; // Render after other objects
-    }
-    
-    // Position leader dog
-    const angle = Math.random() * Math.PI * 2;
-    const radius = 30;
-    leader.position.x = Math.cos(angle) * radius;
-    leader.position.z = Math.sin(angle) * radius;
-    leader.position.y = 1;
-    
-    // Add leader properties
-    leader.userData = {
-        health: 30, // Increased to 30 hearts
-        maxHealth: 30, // Increased to 30 hearts
-        speed: 0.04,
+    // Set up leader dog properties
+    leaderDog.userData = {
         type: 'leader',
-        lastAttackTime: 0,
-        attackCooldown: 800, // 0.8 seconds
-        damage: 1.5, // 1.5 hearts
-        phase: 1, // 1: normal, 2: angry
-        isAngry: false,
-        attackRange: 2.5, // 2.5 units
-        state: 'idle', // idle, alert, aggressive
-        detectionRange: 25, // Increased detection range
-        shotDetectionRange: 40, // Range at which boss detects shots
+        health: 30,
+        maxHealth: 30,
+        speed: 0.15,
+        damage: 1.5,
+        attackRange: 2,
+        detectionRange: 25,
+        shotDetectionRange: 40,
+        shotReactionTime: 500,
         lastShotTime: 0,
-        shotReactionTime: 500, // Time to react to shots
-        idleTime: 0,
-        idleDuration: 3000 + Math.random() * 2000, // 3-5 seconds
-        idlePosition: new THREE.Vector3().copy(leader.position),
-        idleRadius: 3 + Math.random() * 2, // 3-5 units
+        isAngry: false,
+        state: 'idle',
+        attackPhase: 'approach',
         isJumping: false,
         jumpHeight: 0,
-        maxJumpHeight: 2.5,
-        jumpSpeed: 0.15,
-        jumpCooldown: 1500, // 1.5 seconds between jumps
+        jumpSpeed: 0.1,
+        maxJumpHeight: 2,
         lastJumpTime: 0,
-        attackPhase: 'approach' // approach, jump, attack, retreat
+        jumpCooldown: 1000,
+        hasBitten: false,
+        idleTime: 0,
+        idleDuration: 2000,
+        idleRadius: 5,
+        idlePosition: new THREE.Vector3()
     };
     
-    // Add glowing effect
+    // Position the leader dog
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 20;
+    leaderDog.position.set(
+        Math.cos(angle) * radius,
+        0.25,
+        Math.sin(angle) * radius
+    );
+    
+    // Set initial idle position
+    leaderDog.userData.idlePosition.copy(leaderDog.position);
+    
+    // Add to scene
+    scene.add(leaderDog);
+    
+    // Add glow effect
+    const glowGeometry = new THREE.SphereGeometry(1.2, 32, 32);
     const glowMaterial = new THREE.MeshBasicMaterial({
         color: 0xFF0000,
         transparent: true,
         opacity: 0.3,
-        depthWrite: false, // Disable depth writing
-        depthTest: true,   // Keep depth testing
-        renderOrder: 2     // Render after the boss
+        depthWrite: false
     });
-    const glowGeometry = new THREE.BoxGeometry(2.2, 2.2, 4.2);
-    const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
-    leader.add(glowMesh);
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+    glow.renderOrder = 2;
+    leaderDog.add(glow);
     
-    leader.castShadow = true;
-    leader.receiveShadow = true;
-    
-    scene.add(leader);
-    leaderDog = leader;
-    
-    // Create boss health bar
-    createBossHealthBar();
-    
-    // Show boss alert with pause
-    showWarningMessage("Warning: The boss dog has appeared! It has 30 hearts and is stronger than regular dogs.");
+    return leaderDog;
 }
 
 // Create boss health bar
@@ -1578,160 +1542,127 @@ function onWindowResize() {
 
 // Update dog behavior based on game phase
 function updateDogBehavior(dog) {
-    const distance = camera.position.distanceTo(dog.position);
     const now = Date.now();
+    const distanceToPlayer = dog.position.distanceTo(camera.position);
     
-    // Special behavior for leader dog
-    if (dog.userData.type === 'leader') {
-        // Always maintain visibility
-        dog.material.emissive.setHex(0x330000);
-        
-        // Add pulsing effect based on health
-        const healthPercent = dog.userData.health / dog.userData.maxHealth;
-        const pulseIntensity = 0.3 + (1 - healthPercent) * 0.7; // More intense as health decreases
-        dog.material.emissiveIntensity = pulseIntensity;
-        
-        // Make the dog larger when angry
-        if (dog.userData.isAngry) {
-            dog.scale.set(1.8, 1.8, 1.8);
-            
-            // Add more aggressive visual effects when angry
-            dog.material.emissive.setHex(0xFF0000);
-            dog.material.emissiveIntensity = 0.8;
-            
-            // Ensure the boss is always visible
-            dog.renderOrder = 1;
-            dog.traverse(function(child) {
-                if (child.isMesh) {
-                    child.renderOrder = 1;
-                    child.material.depthWrite = false;
-                    child.material.depthTest = true;
-                    child.material.transparent = true;
-                    child.material.opacity = 1;
-                }
-            });
-        } else {
-            dog.scale.set(1.5, 1.5, 1.5);
-        }
-        
-        // Check if recently shot at
-        if (now - dog.userData.lastShotTime < dog.userData.shotReactionTime) {
-            dog.userData.state = 'aggressive';
-            dog.userData.attackPhase = 'approach';
-        }
-        
-        // Increased detection range when angry
-        const detectionRange = dog.userData.isAngry ? dog.userData.detectionRange : dog.userData.detectionRange * 0.7;
-        
-        // Check if dog is in detection range
-        if (distance < detectionRange) {
-            // Dog becomes alert
-            if (dog.userData.state === 'idle') {
-                dog.userData.state = 'alert';
-                
-                // Visual feedback - dog turns yellow
-                const originalColor = dog.material.color.getHex();
-                dog.material.color.set(0xFFFF00);
-                setTimeout(() => {
-                    dog.material.color.set(originalColor);
-                }, 500);
-            }
-            
-            // If dog is alert and player is close, become aggressive
-            if (dog.userData.state === 'alert' && distance < detectionRange * 0.5) {
-                dog.userData.state = 'aggressive';
-                
-                // Visual feedback - dog turns red
-                const originalColor = dog.material.color.getHex();
-                dog.material.color.set(0xFF0000);
-                setTimeout(() => {
-                    dog.material.color.set(originalColor);
-                }, 500);
-            }
-        }
+    // Update dog state based on distance
+    if (distanceToPlayer < dog.userData.detectionRange) {
+        dog.userData.state = 'aggressive';
+    } else if (distanceToPlayer < dog.userData.detectionRange * 1.5) {
+        dog.userData.state = 'alert';
     } else {
-        // Regular dog behavior
-        if (distance < dog.userData.detectionRange) {
-            if (dog.userData.state === 'idle') {
-                dog.userData.state = 'alert';
-                const originalColor = dog.material.color.getHex();
-                dog.material.color.set(0xFFFF00);
-                setTimeout(() => {
-                    dog.material.color.set(originalColor);
-                }, 500);
-            }
-            
-            if (dog.userData.state === 'alert' && distance < dog.userData.detectionRange * 0.5) {
-                dog.userData.state = 'aggressive';
-                const originalColor = dog.material.color.getHex();
-                dog.material.color.set(0xFF0000);
-                setTimeout(() => {
-                    dog.material.color.set(originalColor);
-                }, 500);
-            }
-        } else {
-            if (dog.userData.state !== 'idle') {
-                dog.userData.state = 'idle';
-                const originalColor = dog.material.color.getHex();
-                dog.material.color.set(originalColor);
-            }
-        }
+        dog.userData.state = 'idle';
     }
     
-    // Handle dog movement based on state
+    // Handle different states
     switch (dog.userData.state) {
         case 'idle':
             // Idle behavior - wander around
-            dog.userData.idleTime += 16; // Assuming 60fps
-            
-            if (dog.userData.idleTime > dog.userData.idleDuration) {
+            if (now - dog.userData.idleTime > dog.userData.idleDuration) {
                 // Choose new idle position
                 const angle = Math.random() * Math.PI * 2;
                 const radius = Math.random() * dog.userData.idleRadius;
                 dog.userData.idlePosition.set(
                     dog.userData.idlePosition.x + Math.cos(angle) * radius,
-                    dog.userData.idlePosition.y,
+                    0.25,
                     dog.userData.idlePosition.z + Math.sin(angle) * radius
                 );
-                
-                // Reset idle time
-                dog.userData.idleTime = 0;
+                dog.userData.idleTime = now;
             }
             
             // Move towards idle position
-            const direction = new THREE.Vector3();
-            direction.subVectors(dog.userData.idlePosition, dog.position).normalize();
+            const direction = new THREE.Vector3()
+                .subVectors(dog.userData.idlePosition, dog.position)
+                .normalize();
             dog.position.add(direction.multiplyScalar(dog.userData.speed * 0.5));
-            
-            // Make dog face movement direction
-            if (direction.length() > 0) {
-                dog.lookAt(dog.position.clone().add(direction));
-            }
             break;
             
         case 'alert':
-            // Alert behavior - face player but don't move
-            dog.lookAt(camera.position);
+            // Alert behavior - move towards player but maintain distance
+            const alertDirection = new THREE.Vector3()
+                .subVectors(camera.position, dog.position)
+                .normalize();
+            dog.position.add(alertDirection.multiplyScalar(dog.userData.speed * 0.7));
             break;
             
         case 'aggressive':
-            // Aggressive behavior - chase and attack player with jumping attacks
-            const chaseDirection = new THREE.Vector3();
-            chaseDirection.subVectors(camera.position, dog.position).normalize();
-            dog.position.add(chaseDirection.multiplyScalar(dog.userData.speed));
-            
-            // Make dog face the player
-            dog.lookAt(camera.position);
-            
-            // Check if close enough to jump
-            if (distance < dog.userData.attackRange * 1.5 && 
-                now - dog.userData.lastJumpTime > dog.userData.jumpCooldown) {
-                dog.userData.attackPhase = 'jump';
-                dog.userData.isJumping = true;
-                dog.userData.jumpHeight = 0;
-                dog.userData.lastJumpTime = now;
+            // Aggressive behavior - attack pattern
+            switch (dog.userData.attackPhase) {
+                case 'approach':
+                    // Move towards player
+                    const approachDirection = new THREE.Vector3()
+                        .subVectors(camera.position, dog.position)
+                        .normalize();
+                    dog.position.add(approachDirection.multiplyScalar(dog.userData.speed));
+                    
+                    // Check if close enough to jump
+                    if (distanceToPlayer < dog.userData.attackRange * 1.5) {
+                        dog.userData.attackPhase = 'jump';
+                        dog.userData.isJumping = true;
+                        dog.userData.jumpHeight = 0;
+                        dog.userData.lastJumpTime = now;
+                    }
+                    break;
+                    
+                case 'jump':
+                    // Jumping behavior
+                    if (dog.userData.isJumping) {
+                        dog.userData.jumpHeight += dog.userData.jumpSpeed;
+                        dog.position.y = 0.25 + dog.userData.jumpHeight;
+                        
+                        if (dog.userData.jumpHeight >= dog.userData.maxJumpHeight) {
+                            dog.userData.isJumping = false;
+                            dog.userData.attackPhase = 'attack';
+                        }
+                    }
+                    break;
+                    
+                case 'attack':
+                    // Attack behavior - bite once
+                    if (!dog.userData.hasBitten && distanceToPlayer < dog.userData.attackRange) {
+                        // Deal damage to player
+                        playerHealth -= dog.userData.damage;
+                        updateHealthDisplay();
+                        
+                        // Play bite sound
+                        if (biteSound) {
+                            biteSound.currentTime = 0;
+                            biteSound.play();
+                        }
+                        
+                        dog.userData.hasBitten = true;
+                        dog.userData.attackPhase = 'retreat';
+                    }
+                    break;
+                    
+                case 'retreat':
+                    // Move away from player
+                    const retreatDirection = new THREE.Vector3()
+                        .subVectors(dog.position, camera.position)
+                        .normalize();
+                    dog.position.add(retreatDirection.multiplyScalar(dog.userData.speed * 1.2));
+                    
+                    // After retreating, reset for next attack
+                    if (distanceToPlayer > dog.userData.attackRange * 2) {
+                        dog.userData.attackPhase = 'approach';
+                        dog.userData.hasBitten = false;
+                    }
+                    break;
             }
             break;
+    }
+    
+    // Keep dog on ground when not jumping
+    if (!dog.userData.isJumping) {
+        dog.position.y = 0.25;
+    }
+    
+    // Face movement direction
+    if (dog.userData.state !== 'idle') {
+        const lookDirection = new THREE.Vector3()
+            .subVectors(camera.position, dog.position)
+            .normalize();
+        dog.rotation.y = Math.atan2(lookDirection.x, lookDirection.z);
     }
 }
 
@@ -1838,7 +1769,7 @@ function animate() {
         
         // Update leader dog behavior
         if (leaderDog && leaderDog.userData.health > 0) {
-            updateDogBehavior(leaderDog);
+            updateLeaderDogBehavior(leaderDog, deltaTime);
             updateBossHealthBar();
         }
         
@@ -2130,3 +2061,136 @@ init();
 
 // Clean up when window is closed
 window.addEventListener('unload', cleanup); 
+
+function updateLeaderDogBehavior(dog, deltaTime) {
+    const distanceToPlayer = dog.position.distanceTo(camera.position);
+    const userData = dog.userData;
+    
+    // Update state based on distance
+    if (distanceToPlayer > userData.detectionRange) {
+        userData.state = 'idle';
+    } else if (distanceToPlayer > userData.attackRange) {
+        userData.state = 'alert';
+    } else {
+        userData.state = 'aggressive';
+    }
+    
+    // Handle different states
+    switch (userData.state) {
+        case 'idle':
+            // Idle behavior - patrol around idle position
+            userData.idleTime += deltaTime;
+            if (userData.idleTime >= userData.idleDuration) {
+                const randomAngle = Math.random() * Math.PI * 2;
+                userData.idlePosition.set(
+                    dog.position.x + Math.cos(randomAngle) * userData.idleRadius,
+                    0.25,
+                    dog.position.z + Math.sin(randomAngle) * userData.idleRadius
+                );
+                userData.idleTime = 0;
+            }
+            
+            // Move towards idle position
+            const directionToIdle = new THREE.Vector3()
+                .subVectors(userData.idlePosition, dog.position)
+                .normalize();
+            dog.position.add(directionToIdle.multiplyScalar(userData.speed * deltaTime));
+            dog.position.y = 0.25; // Keep on ground
+            break;
+            
+        case 'alert':
+            // Alert behavior - move towards player
+            const directionToPlayer = new THREE.Vector3()
+                .subVectors(camera.position, dog.position)
+                .normalize();
+            dog.position.add(directionToPlayer.multiplyScalar(userData.speed * deltaTime));
+            dog.position.y = 0.25; // Keep on ground
+            break;
+            
+        case 'aggressive':
+            // Attack pattern
+            switch (userData.attackPhase) {
+                case 'approach':
+                    // Move towards player
+                    const approachDir = new THREE.Vector3()
+                        .subVectors(camera.position, dog.position)
+                        .normalize();
+                    dog.position.add(approachDir.multiplyScalar(userData.speed * deltaTime));
+                    dog.position.y = 0.25;
+                    
+                    // Start jump when close enough
+                    if (distanceToPlayer <= userData.attackRange * 1.5) {
+                        userData.attackPhase = 'jump';
+                        userData.isJumping = true;
+                        userData.jumpHeight = 0;
+                        userData.lastJumpTime = Date.now();
+                    }
+                    break;
+                    
+                case 'jump':
+                    if (userData.isJumping) {
+                        // Continue jump
+                        userData.jumpHeight += userData.jumpSpeed;
+                        dog.position.y = 0.25 + userData.jumpHeight;
+                        
+                        // Move towards player during jump
+                        const jumpDir = new THREE.Vector3()
+                            .subVectors(camera.position, dog.position)
+                            .normalize();
+                        dog.position.add(jumpDir.multiplyScalar(userData.speed * 1.5 * deltaTime));
+                        
+                        // End jump when max height reached
+                        if (userData.jumpHeight >= userData.maxJumpHeight) {
+                            userData.isJumping = false;
+                            userData.attackPhase = 'attack';
+                            userData.hasBitten = false;
+                        }
+                    }
+                    break;
+                    
+                case 'attack':
+                    // Bite once when close enough
+                    if (!userData.hasBitten && distanceToPlayer <= userData.attackRange) {
+                        playerHealth -= userData.damage;
+                        userData.hasBitten = true;
+                        showDamageMessage(`Boss dog bit you for ${userData.damage} hearts!`);
+                        updateHealthDisplay();
+                        
+                        // Start retreat after biting
+                        userData.attackPhase = 'retreat';
+                        userData.lastJumpTime = Date.now();
+                    }
+                    break;
+                    
+                case 'retreat':
+                    // Move away from player
+                    const retreatDir = new THREE.Vector3()
+                        .subVectors(dog.position, camera.position)
+                        .normalize();
+                    dog.position.add(retreatDir.multiplyScalar(userData.speed * deltaTime));
+                    dog.position.y = 0.25;
+                    
+                    // Start new jump after cooldown
+                    if (Date.now() - userData.lastJumpTime >= userData.jumpCooldown) {
+                        userData.attackPhase = 'jump';
+                        userData.isJumping = true;
+                        userData.jumpHeight = 0;
+                        userData.lastJumpTime = Date.now();
+                    }
+                    break;
+            }
+            break;
+    }
+    
+    // Make dog face movement direction
+    if (dog.position.x !== dog.userData.lastPosition?.x || 
+        dog.position.z !== dog.userData.lastPosition?.z) {
+        const direction = new THREE.Vector3()
+            .subVectors(dog.position, dog.userData.lastPosition || dog.position)
+            .normalize();
+        dog.rotation.y = Math.atan2(direction.x, direction.z);
+    }
+    
+    // Store last position
+    dog.userData.lastPosition = dog.position.clone();
+}
