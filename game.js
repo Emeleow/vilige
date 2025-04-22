@@ -1623,12 +1623,17 @@ function updateDogBehavior(dog) {
 
 // Game loop
 function animate() {
-    animationFrameId = requestAnimationFrame(animate);
-    
-    if (gameStarted && !gameOver && !gamePaused) {
+    try {
+        animationFrameId = requestAnimationFrame(animate);
+        
+        if (!gameStarted || gameOver || gamePaused) {
+            renderer.render(scene, camera);
+            return;
+        }
+
         // Calculate delta time for smooth movement
         const currentTime = performance.now();
-        const deltaTime = (currentTime - lastFrameTime) / 16.67; // Normalize to ~60fps
+        const deltaTime = Math.min((currentTime - lastFrameTime) / 16.67, 2.0); // Cap deltaTime to prevent large jumps
         lastFrameTime = currentTime;
         
         // Calculate distance traveled
@@ -1691,7 +1696,7 @@ function animate() {
         
         // Update exploration time
         if (gamePhase === 0) {
-            explorationTime += 16; // Assuming 60fps
+            explorationTime += deltaTime * 16; // Scale with deltaTime
             
             // Show exploration progress
             const progress = Math.min(explorationTime / explorationDuration, 1);
@@ -1703,8 +1708,6 @@ function animate() {
             // Transition to combat phase after exploration duration
             if (explorationTime >= explorationDuration) {
                 gamePhase = 1;
-                
-                // Show combat phase message with pause
                 showWarningMessage("The dogs are becoming aggressive! Be careful!");
             }
         }
@@ -1715,127 +1718,171 @@ function animate() {
             bossSpawned = true;
         }
         
-        // Update dog behavior
-        dogs.forEach(dog => {
-            if (dog.userData.health > 0) {
-                updateDogBehavior(dog);
-            }
-        });
-        
-        // Update leader dog behavior
-        if (leaderDog && leaderDog.userData.health > 0) {
-            updateLeaderDogBehavior(leaderDog, deltaTime);
-            updateBossHealthBar();
-        }
-        
-        // Animate bandages (make them float slightly)
-        bandages.forEach(bandage => {
-            if (bandage && bandage.userData.type === 'bandage') {
-                bandage.position.y = 0.1 + Math.sin(Date.now() * 0.002) * 0.1;
-                bandage.rotation.y += 0.01;
-            }
-        });
-        
-        // Check for ammo pickups
-        ammoPickups.forEach((ammoPickup, index) => {
-            if (ammoPickup && ammoPickup.userData.type === 'ammo') {
-                // Animate ammo pickup (float up and down)
-                ammoPickup.position.y = ammoPickup.userData.initialY + Math.sin(Date.now() * 0.002 + ammoPickup.userData.floatOffset) * 0.1;
-                ammoPickup.rotation.y += 0.01;
-                
-                // Check if player is close enough to pick up
-                const distance = camera.position.distanceTo(ammoPickup.position);
-                if (distance < 3) {
-                    pickupAmmo(ammoPickup);
-                }
-            }
-        });
-        
-        // Animate victory stars and fireworks
-        if (victoryCelebration) {
-            victoryStars.forEach(star => {
-                if (star.userData.type === 'firework') {
-                    // Update firework particles
-                    star.position.add(star.userData.velocity);
-                    star.userData.life -= 0.01;
-                    star.material.opacity = star.userData.life;
-                    
-                    // Remove dead particles
-                    if (star.userData.life <= 0) {
-                        scene.remove(star);
-                        victoryStars = victoryStars.filter(s => s !== star);
-                    }
-                } else {
-                    // Original star animation
-                    star.position.y = star.userData.initialY + Math.sin(Date.now() * 0.002 + star.userData.floatOffset) * 0.5;
-                    star.rotation.x += star.userData.rotateSpeed;
-                    star.rotation.y += star.userData.rotateSpeed;
-                    const scale = 1 + Math.sin(Date.now() * 0.005) * 0.2;
-                    star.scale.set(scale, scale, scale);
+        // Update dog behavior with error handling
+        try {
+            dogs.forEach(dog => {
+                if (dog && dog.userData && dog.userData.health > 0) {
+                    updateDogBehavior(dog);
                 }
             });
             
-            // Check if celebration is over
-            if (Date.now() - victoryTime > victoryDuration) {
-                victoryCelebration = false;
-                
-                // Remove all victory effects
+            // Update leader dog behavior
+            if (leaderDog && leaderDog.userData && leaderDog.userData.health > 0) {
+                updateLeaderDogBehavior(leaderDog, deltaTime);
+                updateBossHealthBar();
+            }
+        } catch (error) {
+            console.error('Error updating dog behavior:', error);
+        }
+        
+        // Animate bandages with error handling
+        try {
+            bandages.forEach(bandage => {
+                if (bandage && bandage.userData && bandage.userData.type === 'bandage') {
+                    bandage.position.y = 0.1 + Math.sin(Date.now() * 0.002) * 0.1;
+                    bandage.rotation.y += 0.01;
+                }
+            });
+        } catch (error) {
+            console.error('Error animating bandages:', error);
+        }
+        
+        // Check for ammo pickups with error handling
+        try {
+            ammoPickups.forEach((ammoPickup, index) => {
+                if (ammoPickup && ammoPickup.userData && ammoPickup.userData.type === 'ammo') {
+                    ammoPickup.position.y = ammoPickup.userData.initialY + Math.sin(Date.now() * 0.002 + ammoPickup.userData.floatOffset) * 0.1;
+                    ammoPickup.rotation.y += 0.01;
+                    
+                    const distance = camera.position.distanceTo(ammoPickup.position);
+                    if (distance < 3) {
+                        pickupAmmo(ammoPickup);
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Error checking ammo pickups:', error);
+        }
+        
+        // Animate victory effects with error handling
+        if (victoryCelebration) {
+            try {
                 victoryStars.forEach(star => {
-                    scene.remove(star);
+                    if (star && star.userData) {
+                        if (star.userData.type === 'firework') {
+                            star.position.add(star.userData.velocity);
+                            star.userData.life -= 0.01;
+                            star.material.opacity = star.userData.life;
+                            
+                            if (star.userData.life <= 0) {
+                                scene.remove(star);
+                                victoryStars = victoryStars.filter(s => s !== star);
+                            }
+                        } else {
+                            star.position.y = star.userData.initialY + Math.sin(Date.now() * 0.002 + star.userData.floatOffset) * 0.5;
+                            star.rotation.x += star.userData.rotateSpeed;
+                            star.rotation.y += star.userData.rotateSpeed;
+                            const scale = 1 + Math.sin(Date.now() * 0.005) * 0.2;
+                            star.scale.set(scale, scale, scale);
+                        }
+                    }
                 });
-                victoryStars = [];
+                
+                if (Date.now() - victoryTime > victoryDuration) {
+                    victoryCelebration = false;
+                    victoryStars.forEach(star => {
+                        if (star) scene.remove(star);
+                    });
+                    victoryStars = [];
+                }
+            } catch (error) {
+                console.error('Error animating victory effects:', error);
             }
         }
         
-        // Animate shotgun
+        // Animate shotgun with error handling
         if (shotgunAvailable) {
-            villageObjects.forEach(obj => {
-                if (obj.userData && obj.userData.type === 'shotgun') {
-                    // Float up and down
-                    obj.position.y = obj.userData.initialY + Math.sin(Date.now() * 0.002 + obj.userData.floatOffset) * 0.2;
-                    
-                    // Rotate
-                    obj.rotation.y += 0.01;
-                }
-            });
+            try {
+                villageObjects.forEach(obj => {
+                    if (obj && obj.userData && obj.userData.type === 'shotgun') {
+                        obj.position.y = obj.userData.initialY + Math.sin(Date.now() * 0.002 + obj.userData.floatOffset) * 0.2;
+                        obj.rotation.y += 0.01;
+                    }
+                });
+            } catch (error) {
+                console.error('Error animating shotgun:', error);
+            }
+        }
+        
+        // Render the scene
+        renderer.render(scene, camera);
+    } catch (error) {
+        console.error('Error in game loop:', error);
+        // Try to recover from error
+        if (!gamePaused) {
+            gamePaused = true;
+            controls.unlock();
+            alert('The game encountered an error and has been paused. Press OK to resume.');
+            gamePaused = false;
+            controls.lock();
         }
     }
-    
-    renderer.render(scene, camera);
+}
+
+// Handle visibility change (tab switch, minimize, etc.)
+function handleVisibilityChange() {
+    if (document.hidden && gameStarted && !gameOver && !gamePaused) {
+        pauseGame();
+    }
+}
+
+// Handle beforeunload (browser close, refresh, etc.)
+function handleBeforeUnload(event) {
+    if (gameStarted && !gameOver) {
+        cleanup();
+        const message = "Are you sure you want to leave? Your progress will be lost.";
+        event.returnValue = message;
+        return message;
+    }
 }
 
 // Clean up resources when game is closed
 function cleanup() {
-    // Cancel animation frame
-    if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-    }
-    
-    // Remove event listeners
-    document.removeEventListener('mousedown', onMouseDown);
-    document.removeEventListener('keydown', onKeyDown);
-    document.removeEventListener('keyup', onKeyUp);
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
-    window.removeEventListener('beforeunload', handleBeforeUnload);
-    
-    // Dispose of Three.js resources
-    if (renderer) {
-        renderer.dispose();
-    }
-    
-    if (scene) {
-        scene.traverse(object => {
-            if (object.geometry) {
-                object.geometry.dispose();
-            }
-            if (object.material) {
-                if (Array.isArray(object.material)) {
-                    object.material.forEach(material => material.dispose());
-                } else {
-                    object.material.dispose();
+    try {
+        // Cancel animation frame
+        if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+        }
+        
+        // Remove event listeners
+        document.removeEventListener('mousedown', onMouseDown);
+        document.removeEventListener('keydown', onKeyDown);
+        document.removeEventListener('keyup', onKeyUp);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        
+        // Dispose of Three.js resources
+        if (renderer) {
+            renderer.dispose();
+        }
+        
+        if (scene) {
+            scene.traverse(object => {
+                if (object.geometry) {
+                    object.geometry.dispose();
                 }
-            }
-        });
+                if (object.material) {
+                    if (Array.isArray(object.material)) {
+                        object.material.forEach(material => material.dispose());
+                    } else {
+                        object.material.dispose();
+                    }
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error during cleanup:', error);
     }
 }
 
