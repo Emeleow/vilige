@@ -73,6 +73,17 @@ let maxObjectsInScene = 200; // Maximum number of objects in scene
 let garbageCollectionInterval = 30000; // 30 seconds between garbage collection
 let lastGarbageCollection = 0; // Time of last garbage collection
 let debugMode = false; // Debug mode flag
+let errorCount = 0; // Count of errors encountered
+let maxErrors = 5; // Maximum number of errors before forcing restart
+let lastErrorTime = 0; // Time of last error
+let errorResetInterval = 60000; // Reset error count after 1 minute
+let criticalError = false; // Flag for critical errors that require immediate action
+let errorLog = []; // Array to store recent errors
+let maxErrorLogSize = 10; // Maximum number of errors to keep in log
+let errorHandlingEnabled = true; // Flag to enable/disable error handling
+let autoRecoveryEnabled = true; // Flag to enable/disable automatic recovery
+let errorNotificationTimeout = null; // Timeout for error notification
+let errorNotificationDuration = 5000; // Duration of error notification in ms
 
 // Load 3D models
 const modelLoader = new THREE.GLTFLoader();
@@ -612,11 +623,18 @@ function createLeaderDog() {
         lastJumpTime: 0,
         jumpCooldown: 1000,
         hasBitten: false,
+        lastBiteTime: 0,
+        biteCooldown: 1000, // 1 second cooldown between bites
         idleTime: 0,
         idleDuration: 2000,
         idleRadius: 5,
         idlePosition: new THREE.Vector3(),
-        retreatDistance: 3 // Distance to retreat after biting
+        retreatDistance: 3, // Distance to retreat after biting
+        attackPattern: 'bite', // New property to specify attack pattern
+        biteRange: 2.5, // Range for biting attack
+        biteDamage: 2, // Damage dealt by bite
+        biteDuration: 500, // Duration of bite animation
+        isBiting: false // Flag to track if currently biting
     };
     
     // Position the leader dog
@@ -1670,6 +1688,12 @@ function animate() {
                 checkPerformance();
                 lastPerformanceCheck = currentTime;
             }
+            
+            // Run garbage collection periodically
+            if (currentTime - lastGarbageCollection > garbageCollectionInterval) {
+                performGarbageCollection();
+                lastGarbageCollection = currentTime;
+            }
         }
         
         if (!gameStarted || gameOver || gamePaused) {
@@ -1760,8 +1784,12 @@ function animate() {
         
         // Check if boss should spawn
         if (!bossSpawned && distanceTraveled > bossSpawnDistance) {
-            createLeaderDog();
-            bossSpawned = true;
+            try {
+                createLeaderDog();
+                bossSpawned = true;
+            } catch (error) {
+                handleGameError(error, "boss spawn");
+            }
         }
         
         // Update dog behavior with error handling
@@ -1779,11 +1807,11 @@ function animate() {
             
             // Update leader dog behavior
             if (leaderDog && leaderDog.userData && leaderDog.userData.health > 0) {
-                updateLeaderDogBehavior(leaderDog, deltaTime);
+                updateLeaderDogBehavior(deltaTime);
                 updateBossHealthBar();
             }
         } catch (error) {
-            console.error('Error updating dog behavior:', error);
+            handleGameError(error, "dog behavior update");
         }
         
         // Animate bandages with error handling
@@ -1800,7 +1828,7 @@ function animate() {
                 }
             });
         } catch (error) {
-            console.error('Error animating bandages:', error);
+            handleGameError(error, "bandage animation");
         }
         
         // Check for ammo pickups with error handling
@@ -1810,7 +1838,7 @@ function animate() {
                 ammoPickups.slice(0, Math.min(3, ammoPickups.length)) : 
                 ammoPickups;
                 
-            ammoPickupsToCheck.forEach((ammoPickup, index) => {
+            ammoPickupsToCheck.forEach(ammoPickup => {
                 if (ammoPickup && ammoPickup.userData && ammoPickup.userData.type === 'ammo') {
                     ammoPickup.position.y = ammoPickup.userData.initialY + Math.sin(Date.now() * 0.002 + ammoPickup.userData.floatOffset) * 0.1;
                     ammoPickup.rotation.y += 0.01;
@@ -1822,7 +1850,7 @@ function animate() {
                 }
             });
         } catch (error) {
-            console.error('Error checking ammo pickups:', error);
+            handleGameError(error, "ammo pickup check");
         }
         
         // Animate victory effects with error handling
@@ -1862,7 +1890,7 @@ function animate() {
                     victoryStars = [];
                 }
             } catch (error) {
-                console.error('Error animating victory effects:', error);
+                handleGameError(error, "victory effects animation");
             }
         }
         
@@ -1881,23 +1909,23 @@ function animate() {
                     }
                 });
             } catch (error) {
-                console.error('Error animating shotgun:', error);
+                handleGameError(error, "shotgun animation");
             }
         }
         
         // Render the scene
-        renderer.render(scene, camera);
+        try {
+            renderer.render(scene, camera);
+        } catch (error) {
+            handleGameError(error, "scene rendering");
+        }
         
         // If we were in error recovery mode and got here, we're recovered
         if (errorRecoveryMode) {
-            errorRecoveryMode = false;
-            if (errorRecoveryTimeout) {
-                clearTimeout(errorRecoveryTimeout);
-                errorRecoveryTimeout = null;
-            }
+            exitErrorRecoveryMode();
         }
     } catch (error) {
-        console.error('Error in game loop:', error);
+        handleGameError(error, "main game loop");
         
         // If we're already in error recovery mode, don't try again
         if (errorRecoveryMode) {
@@ -1905,21 +1933,118 @@ function animate() {
         }
         
         // Enter error recovery mode
-        errorRecoveryMode = true;
+        enterErrorRecoveryMode();
+    }
+}
+
+// Function to check performance and adjust settings
+function checkPerformance() {
+    // If FPS is below threshold, enable performance mode
+    if (currentFPS < lowPerformanceThreshold) {
+        performanceMode = true;
+        console.log("Performance mode enabled due to low FPS:", currentFPS);
         
-        // Try to recover from error
-        if (!gamePaused) {
-            gamePaused = true;
-            controls.unlock();
-            
-            // Set a timeout to automatically resume after 2 seconds
-            errorRecoveryTimeout = setTimeout(() => {
-                gamePaused = false;
-                controls.lock();
-                errorRecoveryMode = false;
-            }, 2000);
+        // Reduce shadow quality
+        if (renderer.shadowMap.enabled) {
+            renderer.shadowMap.enabled = false;
+        }
+        
+        // Reduce fog distance
+        if (scene.fog) {
+            scene.fog.near = 10;
+            scene.fog.far = 50;
+        }
+    } else {
+        // If FPS is good, disable performance mode
+        performanceMode = false;
+        
+        // Restore shadow quality
+        if (!renderer.shadowMap.enabled) {
+            renderer.shadowMap.enabled = true;
+        }
+        
+        // Restore fog distance
+        if (scene.fog) {
+            scene.fog.near = 20;
+            scene.fog.far = 100;
         }
     }
+}
+
+// Function to perform garbage collection
+function performGarbageCollection() {
+    console.log("Running garbage collection...");
+    
+    // Remove any null or undefined objects from arrays
+    dogs = dogs.filter(dog => dog && dog.userData);
+    bandages = bandages.filter(bandage => bandage && bandage.userData);
+    ammoPickups = ammoPickups.filter(ammo => ammo && ammo.userData);
+    villageObjects = villageObjects.filter(obj => obj && obj.userData);
+    victoryStars = victoryStars.filter(star => star && star.userData);
+    
+    // Remove any objects that are no longer in the scene
+    dogs = dogs.filter(dog => scene.getObjectById(dog.id));
+    bandages = bandages.filter(bandage => scene.getObjectById(bandage.id));
+    ammoPickups = ammoPickups.filter(ammo => scene.getObjectById(ammo.id));
+    villageObjects = villageObjects.filter(obj => scene.getObjectById(obj.id));
+    victoryStars = victoryStars.filter(star => scene.getObjectById(star.id));
+    
+    // Force garbage collection if available
+    if (window.gc) {
+        window.gc();
+    }
+    
+    console.log("Garbage collection complete");
+}
+
+// Function to show error message
+function showErrorMessage(message) {
+    const errorElement = document.createElement('div');
+    errorElement.style.position = 'absolute';
+    errorElement.style.top = '50%';
+    errorElement.style.left = '50%';
+    errorElement.style.transform = 'translate(-50%, -50%)';
+    errorElement.style.color = 'red';
+    errorElement.style.fontSize = '20px';
+    errorElement.style.textAlign = 'center';
+    errorElement.style.zIndex = '1000';
+    errorElement.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+    errorElement.style.padding = '20px';
+    errorElement.style.borderRadius = '10px';
+    errorElement.textContent = message;
+    
+    document.body.appendChild(errorElement);
+    
+    setTimeout(() => {
+        if (errorElement.parentNode) {
+            errorElement.parentNode.removeChild(errorElement);
+        }
+    }, 5000);
+}
+
+// Function to show damage message
+function showDamageMessage(message) {
+    const damageElement = document.createElement('div');
+    damageElement.style.position = 'absolute';
+    damageElement.style.top = '30%';
+    damageElement.style.left = '50%';
+    damageElement.style.transform = 'translate(-50%, -50%)';
+    damageElement.style.color = 'red';
+    damageElement.style.fontSize = '18px';
+    damageElement.style.textAlign = 'center';
+    damageElement.style.zIndex = '1000';
+    damageElement.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    damageElement.style.padding = '10px';
+    damageElement.style.borderRadius = '5px';
+    damageElement.textContent = message;
+    
+    document.body.appendChild(damageElement);
+    
+    setTimeout(() => {
+        if (damageElement.parentNode) {
+            damageElement.parentNode.removeChild(damageElement);
+        }
+    }, 2000);
 }
 
 // Clean up resources when game is closed
@@ -1935,6 +2060,12 @@ function cleanup() {
         if (errorRecoveryTimeout) {
             clearTimeout(errorRecoveryTimeout);
             errorRecoveryTimeout = null;
+        }
+        
+        // Clear any error notification timeout
+        if (errorNotificationTimeout) {
+            clearTimeout(errorNotificationTimeout);
+            errorNotificationTimeout = null;
         }
         
         // Remove event listeners
@@ -2146,81 +2277,229 @@ init();
 // Clean up when window is closed
 window.addEventListener('unload', cleanup); 
 
-function updateLeaderDogBehavior(dog, deltaTime) {
-    const distanceToPlayer = dog.position.distanceTo(camera.position);
-    const userData = dog.userData;
+function updateLeaderDogBehavior(deltaTime) {
+    if (!leaderDog || gameOver) return;
+    
+    const leader = leaderDog.userData;
+    const distanceToPlayer = leaderDog.position.distanceTo(camera.position);
     const now = Date.now();
     
-    // Update state based on distance
-    if (distanceToPlayer > userData.detectionRange) {
-        userData.state = 'idle';
-    } else if (distanceToPlayer > userData.attackRange) {
-        userData.state = 'alert';
+    // Update detection range based on anger state
+    const currentDetectionRange = leader.isAngry ? 35 : 25;
+    
+    // Check if player is in range
+    if (distanceToPlayer <= currentDetectionRange) {
+        leader.state = 'aggressive';
+        
+        // Handle biting attack pattern
+        if (leader.attackPattern === 'bite') {
+            switch (leader.attackPhase) {
+                case 'approach':
+                    // Move towards player
+                    const direction = new THREE.Vector3()
+                        .subVectors(camera.position, leaderDog.position)
+                        .normalize();
+                    leaderDog.position.add(direction.multiplyScalar(leader.speed));
+                    
+                    // Check if close enough to bite
+                    if (distanceToPlayer <= leader.biteRange && !leader.isBiting && 
+                        now - leader.lastBiteTime >= leader.biteCooldown) {
+                        leader.attackPhase = 'bite';
+                        leader.isBiting = true;
+                        leader.lastBiteTime = now;
+                    }
+                    break;
+                    
+                case 'bite':
+                    // Perform bite attack
+                    if (distanceToPlayer <= leader.biteRange) {
+                        // Deal damage to player
+                        takeDamage(leader.biteDamage);
+                        
+                        // Visual feedback for bite
+                        leaderDog.scale.set(1.7, 1.7, 1.7);
+                        setTimeout(() => {
+                            leaderDog.scale.set(1.5, 1.5, 1.5);
+                        }, 200);
+                    }
+                    
+                    // After bite duration, move to retreat phase
+                    if (now - leader.lastBiteTime >= leader.biteDuration) {
+                        leader.attackPhase = 'retreat';
+                        leader.isBiting = false;
+                    }
+                    break;
+                    
+                case 'retreat':
+                    // Move away from player
+                    const retreatDir = new THREE.Vector3()
+                        .subVectors(leaderDog.position, camera.position)
+                        .normalize();
+                    leaderDog.position.add(retreatDir.multiplyScalar(leader.speed));
+                    
+                    // After retreating enough, go back to approach
+                    if (distanceToPlayer >= leader.retreatDistance) {
+                        leader.attackPhase = 'approach';
+                    }
+                    break;
+            }
+        }
+        
+        // Update model rotation to face player
+        leaderDog.lookAt(camera.position);
+        
     } else {
-        userData.state = 'aggressive';
-    }
-    
-    // Handle different states
-    switch (userData.state) {
-        case 'idle':
-            // Idle behavior - patrol around idle position
-            userData.idleTime += deltaTime;
-            if (userData.idleTime >= userData.idleDuration) {
-                const randomAngle = Math.random() * Math.PI * 2;
-                userData.idlePosition.set(
-                    dog.position.x + Math.cos(randomAngle) * userData.idleRadius,
-                    0.25,
-                    dog.position.z + Math.sin(randomAngle) * userData.idleRadius
-                );
-                userData.idleTime = 0;
-            }
-            
-            // Move towards idle position
-            const directionToIdle = new THREE.Vector3()
-                .subVectors(userData.idlePosition, dog.position)
-                .normalize();
-            dog.position.add(directionToIdle.multiplyScalar(userData.speed * deltaTime));
-            dog.position.y = 0.25;
-            break;
-            
-        case 'alert':
-            // Alert behavior - move towards player
-            const directionToPlayer = new THREE.Vector3()
-                .subVectors(camera.position, dog.position)
-                .normalize();
-            dog.position.add(directionToPlayer.multiplyScalar(userData.speed * deltaTime));
-            dog.position.y = 0.25;
-            break;
-            
-        case 'aggressive':
-            // Chase and bite behavior
-            const chaseDirection = new THREE.Vector3()
-                .subVectors(camera.position, dog.position)
-                .normalize();
-            
-            // Move towards player
-            dog.position.add(chaseDirection.multiplyScalar(userData.speed * deltaTime));
-            
-            // Bite when close enough and cooldown has passed
-            if (distanceToPlayer <= userData.attackRange && now - lastDogBiteTime >= dogBiteCooldown) {
-                takeDamage(userData.damage);
-                showDamageMessage(`Boss dog bit you for ${userData.damage} hearts!`);
-            }
-            break;
-    }
-    
-    // Keep dog on ground
-    dog.position.y = 0.25;
-    
-    // Make dog face movement direction
-    if (dog.position.x !== dog.userData.lastPosition?.x || 
-        dog.position.z !== dog.userData.lastPosition?.z) {
-        const direction = new THREE.Vector3()
-            .subVectors(dog.position, dog.userData.lastPosition || dog.position)
+        // Return to idle state if player is out of range
+        leader.state = 'idle';
+        leader.attackPhase = 'approach';
+        leader.isBiting = false;
+        
+        // Move back to idle position
+        const idleDir = new THREE.Vector3()
+            .subVectors(leader.idlePosition, leaderDog.position)
             .normalize();
-        dog.rotation.y = Math.atan2(direction.x, direction.z);
+        leaderDog.position.add(idleDir.multiplyScalar(leader.speed * 0.5));
     }
     
-    // Store last position
-    dog.userData.lastPosition = dog.position.clone();
+    // Check for becoming angry at half health
+    if (!leader.isAngry && leader.health <= leader.maxHealth / 2) {
+        leader.isAngry = true;
+        leader.speed *= 1.5;
+        leader.biteCooldown *= 0.8; // Faster bites when angry
+        
+        // Visual feedback for becoming angry
+        leaderDog.scale.set(1.8, 1.8, 1.8);
+        setTimeout(() => {
+            leaderDog.scale.set(1.5, 1.5, 1.5);
+        }, 500);
+    }
+}
+
+// Function to handle errors in the game
+function handleGameError(error, context) {
+    if (!errorHandlingEnabled) return;
+    
+    const now = Date.now();
+    const errorInfo = {
+        message: error.message || 'Unknown error',
+        stack: error.stack,
+        context: context,
+        time: now
+    };
+    
+    // Add to error log
+    errorLog.push(errorInfo);
+    if (errorLog.length > maxErrorLogSize) {
+        errorLog.shift(); // Remove oldest error
+    }
+    
+    // Increment error count
+    errorCount++;
+    lastErrorTime = now;
+    
+    // Log error to console
+    console.error(`Error in ${context}:`, error);
+    
+    // Show error notification to user
+    showErrorNotification(`Error in ${context}: ${error.message}`);
+    
+    // Check if we've hit the error threshold
+    if (errorCount >= maxErrors) {
+        criticalError = true;
+        showErrorMessage("Too many errors detected. Game will restart in 5 seconds.");
+        
+        // Force restart after 5 seconds
+        setTimeout(() => {
+            restartGame();
+            errorCount = 0;
+            criticalError = false;
+        }, 5000);
+    }
+    
+    // Reset error count after interval if no new errors
+    if (now - lastErrorTime > errorResetInterval) {
+        errorCount = 0;
+    }
+    
+    // Enter error recovery mode if auto-recovery is enabled
+    if (autoRecoveryEnabled && !errorRecoveryMode) {
+        enterErrorRecoveryMode();
+    }
+}
+
+// Function to show error notification
+function showErrorNotification(message) {
+    // Clear any existing notification timeout
+    if (errorNotificationTimeout) {
+        clearTimeout(errorNotificationTimeout);
+    }
+    
+    // Create notification element
+    const notificationElement = document.createElement('div');
+    notificationElement.id = 'errorNotification';
+    notificationElement.style.position = 'absolute';
+    notificationElement.style.top = '10%';
+    notificationElement.style.left = '50%';
+    notificationElement.style.transform = 'translate(-50%, -50%)';
+    notificationElement.style.color = 'white';
+    notificationElement.style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
+    notificationElement.style.padding = '10px';
+    notificationElement.style.borderRadius = '5px';
+    notificationElement.style.fontSize = '14px';
+    notificationElement.style.zIndex = '1000';
+    notificationElement.style.maxWidth = '80%';
+    notificationElement.style.textAlign = 'center';
+    notificationElement.textContent = message;
+    
+    // Add to document
+    document.body.appendChild(notificationElement);
+    
+    // Remove after duration
+    errorNotificationTimeout = setTimeout(() => {
+        if (notificationElement.parentNode) {
+            notificationElement.parentNode.removeChild(notificationElement);
+        }
+    }, errorNotificationDuration);
+}
+
+// Function to enter error recovery mode
+function enterErrorRecoveryMode() {
+    if (errorRecoveryMode) return;
+    
+    errorRecoveryMode = true;
+    console.log("Entering error recovery mode");
+    
+    // Pause the game
+    if (!gamePaused) {
+        gamePaused = true;
+        controls.unlock();
+        
+        // Show recovery message
+        showErrorMessage("Game paused for error recovery. Resuming in 3 seconds...");
+        
+        // Set a timeout to automatically resume
+        errorRecoveryTimeout = setTimeout(() => {
+            exitErrorRecoveryMode();
+        }, 3000);
+    }
+}
+
+// Function to exit error recovery mode
+function exitErrorRecoveryMode() {
+    if (!errorRecoveryMode) return;
+    
+    errorRecoveryMode = false;
+    console.log("Exiting error recovery mode");
+    
+    // Resume the game
+    if (gamePaused) {
+        gamePaused = false;
+        controls.lock();
+    }
+    
+    // Clear any existing timeout
+    if (errorRecoveryTimeout) {
+        clearTimeout(errorRecoveryTimeout);
+        errorRecoveryTimeout = null;
+    }
 }
