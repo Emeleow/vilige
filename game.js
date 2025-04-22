@@ -1325,6 +1325,28 @@ function animate() {
         distanceTraveled += currentPosition.distanceTo(lastPosition);
         lastPosition.copy(currentPosition);
         
+        // Handle continuous movement for smooth diagonal movement
+        if (window.keysPressed) {
+            const speed = 0.2;
+            const moveDirection = new THREE.Vector3();
+            
+            // Calculate movement direction based on all currently pressed keys
+            if (window.keysPressed['KeyW']) moveDirection.z -= 1;
+            if (window.keysPressed['KeyS']) moveDirection.z += 1;
+            if (window.keysPressed['KeyA']) moveDirection.x -= 1;
+            if (window.keysPressed['KeyD']) moveDirection.x += 1;
+            
+            // Normalize and apply movement
+            if (moveDirection.length() > 0) {
+                moveDirection.normalize();
+                moveDirection.multiplyScalar(speed);
+                
+                // Apply movement in world space
+                camera.position.x += moveDirection.x;
+                camera.position.z += moveDirection.z;
+            }
+        }
+        
         // Handle jumping
         if (isJumping) {
             if (jumpHeight < maxJumpHeight) {
