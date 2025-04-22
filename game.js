@@ -33,6 +33,7 @@ let jumpSpeed = 0.1;
 let gravity = 0.05;
 let houses = []; // Array to store houses for ammo reload
 let animationFrameId = null; // Store animation frame ID for cleanup
+let ammoPickups = []; // Array to store ammo pickups on the ground
 
 // Load 3D models
 const modelLoader = new THREE.GLTFLoader();
@@ -82,6 +83,9 @@ function init() {
     
     // Create bandages
     createBandages();
+    
+    // Create ammo pickups
+    createAmmoPickups();
     
     // Set up controls
     controls = new THREE.PointerLockControls(camera, document.body);
@@ -645,8 +649,17 @@ function restartGame() {
     });
     bandages = [];
     
+    // Remove all ammo pickups
+    ammoPickups.forEach(ammoPickup => {
+        scene.remove(ammoPickup);
+    });
+    ammoPickups = [];
+    
     // Create new bandages
     createBandages();
+    
+    // Create new ammo pickups
+    createAmmoPickups();
     
     // Reset player position
     camera.position.set(0, 1.7, 0);
@@ -800,19 +813,30 @@ function onKeyDown(event) {
     const speed = 0.2;
     const moveDirection = new THREE.Vector3();
     
+    // Track which keys are currently pressed
+    if (!window.keysPressed) {
+        window.keysPressed = {};
+    }
+    window.keysPressed[event.code] = true;
+    
+    // Calculate movement direction based on all currently pressed keys
+    if (window.keysPressed['KeyW']) moveDirection.z -= 1;
+    if (window.keysPressed['KeyS']) moveDirection.z += 1;
+    if (window.keysPressed['KeyA']) moveDirection.x -= 1;
+    if (window.keysPressed['KeyD']) moveDirection.x += 1;
+    
+    // Normalize and apply movement
+    if (moveDirection.length() > 0) {
+        moveDirection.normalize();
+        moveDirection.multiplyScalar(speed);
+        
+        // Apply movement in world space
+        camera.position.x += moveDirection.x;
+        camera.position.z += moveDirection.z;
+    }
+    
+    // Handle other keys
     switch (event.code) {
-        case 'KeyW':
-            moveDirection.z -= 1;
-            break;
-        case 'KeyS':
-            moveDirection.z += 1;
-            break;
-        case 'KeyA':
-            moveDirection.x -= 1;
-            break;
-        case 'KeyD':
-            moveDirection.x += 1;
-            break;
         case 'Space':
             if (!isJumping) {
                 isJumping = true;
@@ -832,21 +856,15 @@ function onKeyDown(event) {
             togglePause();
             break;
     }
-    
-    // Normalize and apply movement
-    if (moveDirection.length() > 0) {
-        moveDirection.normalize();
-        moveDirection.multiplyScalar(speed);
-        
-        // Apply movement in world space
-        camera.position.x += moveDirection.x;
-        camera.position.z += moveDirection.z;
-    }
 }
 
 // Handle key up events
 function onKeyUp(event) {
-    // Handle key release events if needed
+    // Handle key release events
+    if (window.keysPressed) {
+        window.keysPressed[event.code] = false;
+    }
+    
     switch (event.code) {
         case 'Escape':
             // Prevent default behavior (browser menu)
@@ -1372,6 +1390,21 @@ function animate() {
                 bandage.rotation.y += 0.01;
             }
         });
+        
+        // Check for ammo pickups
+        ammoPickups.forEach((ammoPickup, index) => {
+            if (ammoPickup && ammoPickup.userData.type === 'ammo') {
+                // Animate ammo pickup (float up and down)
+                ammoPickup.position.y = ammoPickup.userData.initialY + Math.sin(Date.now() * 0.002 + ammoPickup.userData.floatOffset) * 0.1;
+                ammoPickup.rotation.y += 0.01;
+                
+                // Check if player is close enough to pick up
+                const distance = camera.position.distanceTo(ammoPickup.position);
+                if (distance < 3) {
+                    pickupAmmo(ammoPickup);
+                }
+            }
+        });
     }
     
     renderer.render(scene, camera);
@@ -1410,6 +1443,100 @@ function cleanup() {
             }
         });
     }
+}
+
+// Create ammo pickups
+function createAmmoPickups() {
+    // Create 10 ammo pickups scattered around the world
+    for (let i = 0; i < 10; i++) {
+        const ammoGeometry = new THREE.BoxGeometry(0.5, 0.2, 0.5);
+        const ammoMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xFFFF00,
+            roughness: 0.5,
+            metalness: 0.5
+        });
+        const ammoPickup = new THREE.Mesh(ammoGeometry, ammoMaterial);
+        
+        // Random position
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 20 + Math.random() * 80;
+        ammoPickup.position.x = Math.cos(angle) * radius;
+        ammoPickup.position.z = Math.sin(angle) * radius;
+        ammoPickup.position.y = 0.1;
+        
+        // Add ammo properties
+        ammoPickup.userData = {
+            type: 'ammo',
+            ammoAmount: 15 // Each pickup gives 15 ammo
+        };
+        
+        // Add floating animation
+        ammoPickup.userData.initialY = ammoPickup.position.y;
+        ammoPickup.userData.floatOffset = Math.random() * Math.PI * 2;
+        
+        ammoPickup.castShadow = true;
+        ammoPickup.receiveShadow = true;
+        
+        scene.add(ammoPickup);
+        ammoPickups.push(ammoPickup);
+    }
+}
+
+// Pick up ammo
+function pickupAmmo(ammoPickup) {
+    // Add ammo
+    ammo += ammoPickup.userData.ammoAmount;
+    updateAmmoDisplay();
+    
+    // Remove ammo pickup
+    scene.remove(ammoPickup);
+    ammoPickups = ammoPickups.filter(pickup => pickup !== ammoPickup);
+    
+    // Visual feedback
+    const ammoBar = document.getElementById('ammo');
+    ammoBar.style.color = '#00FF00';
+    setTimeout(() => {
+        ammoBar.style.color = 'white';
+    }, 500);
+    
+    // Create a new ammo pickup after some time
+    setTimeout(() => {
+        createNewAmmoPickup();
+    }, 30000); // 30 seconds
+}
+
+// Create a new ammo pickup
+function createNewAmmoPickup() {
+    const ammoGeometry = new THREE.BoxGeometry(0.5, 0.2, 0.5);
+    const ammoMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0xFFFF00,
+        roughness: 0.5,
+        metalness: 0.5
+    });
+    const ammoPickup = new THREE.Mesh(ammoGeometry, ammoMaterial);
+    
+    // Random position
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 20 + Math.random() * 80;
+    ammoPickup.position.x = Math.cos(angle) * radius;
+    ammoPickup.position.z = Math.sin(angle) * radius;
+    ammoPickup.position.y = 0.1;
+    
+    // Add ammo properties
+    ammoPickup.userData = {
+        type: 'ammo',
+        ammoAmount: 15 // Each pickup gives 15 ammo
+    };
+    
+    // Add floating animation
+    ammoPickup.userData.initialY = ammoPickup.position.y;
+    ammoPickup.userData.floatOffset = Math.random() * Math.PI * 2;
+    
+    ammoPickup.castShadow = true;
+    ammoPickup.receiveShadow = true;
+    
+    scene.add(ammoPickup);
+    ammoPickups.push(ammoPickup);
 }
 
 // Start the game
