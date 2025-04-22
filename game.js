@@ -35,6 +35,14 @@ let houses = []; // Array to store houses for ammo reload
 let animationFrameId = null; // Store animation frame ID for cleanup
 let ammoPickups = []; // Array to store ammo pickups on the ground
 let bossHitCount = 0; // Count hits on boss to track when to reduce health
+let victoryCelebration = false; // Flag for victory celebration
+let victoryTime = 0; // Time for victory celebration
+let victoryDuration = 10000; // 10 seconds of victory celebration
+let shotgunAvailable = false; // Flag for shotgun availability
+let shotgunPosition = new THREE.Vector3(); // Position for shotgun
+let shotgunModel; // Model for shotgun
+let victoryStars = []; // Array to store victory stars
+let victoryAudio; // Audio for victory celebration
 // New movement variables
 let isSprinting = false;
 let walkCycle = 0;
@@ -206,6 +214,15 @@ function loadModels() {
                 child.receiveShadow = true;
             }
         });
+    });
+    
+    // Load shotgun model
+    modelLoader.load('https://threejs.org/examples/models/gltf/Sniper.glb', function(gltf) {
+        shotgunModel = gltf.scene;
+        shotgunModel.scale.set(0.1, 0.1, 0.1);
+        shotgunModel.position.set(0.3, -0.3, -0.5);
+        shotgunModel.visible = false;
+        camera.add(shotgunModel);
     });
 }
 
@@ -1034,10 +1051,8 @@ function shoot() {
         // Check if dog is dead
         if (hitDog.userData.health <= 0) {
             if (hitDog === leaderDog) {
-                gameOver = true;
-                document.getElementById('finalScore').textContent = score;
-                document.getElementById('gameOverScreen').style.display = 'flex';
-                showWarningMessage("You won! You defeated the leader dog!");
+                // Boss defeated - start victory celebration
+                startVictoryCelebration();
                 
                 // Remove boss health bar
                 const bossHealthContainer = document.getElementById('bossHealthContainer');
@@ -1081,31 +1096,229 @@ function spawnPowerUpNearPlayer() {
     villageObjects.push(powerUp);
 }
 
+// Start victory celebration
+function startVictoryCelebration() {
+    victoryCelebration = true;
+    victoryTime = Date.now();
+    
+    // Play victory sound
+    playVictorySound();
+    
+    // Create victory stars
+    createVictoryStars();
+    
+    // Spawn shotgun reward
+    spawnShotgunReward();
+    
+    // Show victory message
+    showVictoryMessage();
+    
+    // Pause game for celebration
+    gamePaused = true;
+    
+    // Resume game after celebration
+    setTimeout(() => {
+        gamePaused = false;
+    }, victoryDuration);
+}
+
+// Play victory sound
+function playVictorySound() {
+    // Create audio element for victory sound
+    victoryAudio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-achievement-bell-600.mp3');
+    victoryAudio.volume = 0.5;
+    victoryAudio.play();
+}
+
+// Create victory stars
+function createVictoryStars() {
+    // Create 20 stars
+    for (let i = 0; i < 20; i++) {
+        const starGeometry = new THREE.OctahedronGeometry(0.5, 0);
+        const starMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xFFFF00,
+            emissive: 0xFFFF00,
+            emissiveIntensity: 0.5
+        });
+        const star = new THREE.Mesh(starGeometry, starMaterial);
+        
+        // Random position around the player
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 5 + Math.random() * 10;
+        star.position.set(
+            camera.position.x + Math.cos(angle) * radius,
+            2 + Math.random() * 5,
+            camera.position.z + Math.sin(angle) * radius
+        );
+        
+        // Add animation properties
+        star.userData = {
+            type: 'victoryStar',
+            floatSpeed: 0.01 + Math.random() * 0.02,
+            rotateSpeed: 0.01 + Math.random() * 0.02,
+            floatOffset: Math.random() * Math.PI * 2,
+            initialY: star.position.y
+        };
+        
+        star.castShadow = true;
+        star.receiveShadow = true;
+        
+        scene.add(star);
+        victoryStars.push(star);
+    }
+}
+
+// Spawn shotgun reward
+function spawnShotgunReward() {
+    shotgunAvailable = true;
+    
+    // Position shotgun in front of the player
+    const forward = new THREE.Vector3(0, 0, -1);
+    forward.applyQuaternion(camera.quaternion);
+    forward.y = 0;
+    forward.normalize();
+    
+    shotgunPosition.set(
+        camera.position.x + forward.x * 3,
+        0.5,
+        camera.position.z + forward.z * 3
+    );
+    
+    // Create shotgun object
+    const shotgunGeometry = new THREE.BoxGeometry(1, 0.3, 0.2);
+    const shotgunMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x8B4513,
+        roughness: 0.7,
+        metalness: 0.3
+    });
+    const shotgun = new THREE.Mesh(shotgunGeometry, shotgunMaterial);
+    shotgun.position.copy(shotgunPosition);
+    shotgun.userData = { type: 'shotgun' };
+    
+    // Add floating animation
+    shotgun.userData.initialY = shotgun.position.y;
+    shotgun.userData.floatOffset = Math.random() * Math.PI * 2;
+    
+    shotgun.castShadow = true;
+    shotgun.receiveShadow = true;
+    
+    scene.add(shotgun);
+    villageObjects.push(shotgun);
+    
+    // Show message about shotgun
+    showMessage("A powerful shotgun has appeared! Press E to pick it up.");
+}
+
+// Show victory message
+function showVictoryMessage() {
+    // Create victory message element
+    const victoryElement = document.createElement('div');
+    victoryElement.id = 'victoryMessage';
+    victoryElement.style.position = 'absolute';
+    victoryElement.style.top = '30%';
+    victoryElement.style.left = '50%';
+    victoryElement.style.transform = 'translate(-50%, -50%)';
+    victoryElement.style.color = 'gold';
+    victoryElement.style.fontSize = '36px';
+    victoryElement.style.textAlign = 'center';
+    victoryElement.style.zIndex = '100';
+    victoryElement.style.fontWeight = 'bold';
+    victoryElement.style.textShadow = '0 0 10px #FFD700, 0 0 20px #FFD700, 0 0 30px #FFD700';
+    victoryElement.innerHTML = 'VICTORY!<br>You have defeated the leader dog!';
+    
+    // Add to document
+    document.body.appendChild(victoryElement);
+    
+    // Remove after celebration
+    setTimeout(() => {
+        if (victoryElement.parentNode) {
+            victoryElement.parentNode.removeChild(victoryElement);
+        }
+    }, victoryDuration);
+}
+
+// Show message
+function showMessage(message) {
+    // Create message element
+    const messageElement = document.createElement('div');
+    messageElement.id = 'gameMessage';
+    messageElement.style.position = 'absolute';
+    messageElement.style.top = '70%';
+    messageElement.style.left = '50%';
+    messageElement.style.transform = 'translate(-50%, -50%)';
+    messageElement.style.color = 'white';
+    messageElement.style.fontSize = '18px';
+    messageElement.style.textAlign = 'center';
+    messageElement.style.zIndex = '100';
+    messageElement.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    messageElement.style.padding = '10px 20px';
+    messageElement.style.borderRadius = '5px';
+    messageElement.textContent = message;
+    
+    // Add to document
+    document.body.appendChild(messageElement);
+    
+    // Remove after 5 seconds
+    setTimeout(() => {
+        if (messageElement.parentNode) {
+            messageElement.parentNode.removeChild(messageElement);
+        }
+    }, 5000);
+}
+
 // Pick up power-up
 function pickupPowerUp() {
-    if (!powerUpAvailable) return;
+    if (!powerUpAvailable && !shotgunAvailable) return;
     
     // Check if player is close to power-up
-    const distance = camera.position.distanceTo(powerUpPosition);
-    if (distance < 3) {
-        // Switch to sniper
-        currentWeapon = 'sniper';
-        
-        // Update weapon models
-        if (pistolModel) pistolModel.visible = false;
-        if (sniperModel) sniperModel.visible = true;
-        
-        // Remove power-up from scene
-        villageObjects.forEach(obj => {
-            if (obj.userData && obj.userData.type === 'sniper') {
-                scene.remove(obj);
-            }
-        });
-        
-        powerUpAvailable = false;
-        
-        // Show warning with pause
-        showWarningMessage("You picked up the sniper rifle! This powerful weapon can damage the boss dog with each shot!");
+    if (powerUpAvailable) {
+        const distance = camera.position.distanceTo(powerUpPosition);
+        if (distance < 3) {
+            // Switch to sniper
+            currentWeapon = 'sniper';
+            
+            // Update weapon models
+            if (pistolModel) pistolModel.visible = false;
+            if (sniperModel) sniperModel.visible = true;
+            
+            // Remove power-up from scene
+            villageObjects.forEach(obj => {
+                if (obj.userData && obj.userData.type === 'sniper') {
+                    scene.remove(obj);
+                }
+            });
+            
+            powerUpAvailable = false;
+            
+            // Show warning with pause
+            showWarningMessage("You picked up the sniper rifle! This powerful weapon can damage the boss dog with each shot!");
+        }
+    }
+    
+    // Check if player is close to shotgun
+    if (shotgunAvailable) {
+        const distance = camera.position.distanceTo(shotgunPosition);
+        if (distance < 3) {
+            // Switch to shotgun
+            currentWeapon = 'shotgun';
+            
+            // Update weapon models
+            if (pistolModel) pistolModel.visible = false;
+            if (sniperModel) sniperModel.visible = false;
+            if (shotgunModel) shotgunModel.visible = true;
+            
+            // Remove shotgun from scene
+            villageObjects.forEach(obj => {
+                if (obj.userData && obj.userData.type === 'shotgun') {
+                    scene.remove(obj);
+                }
+            });
+            
+            shotgunAvailable = false;
+            
+            // Show thank you message
+            showThankYouMessage();
+        }
     }
     
     // Check for bandages
@@ -1134,6 +1347,42 @@ function pickupPowerUp() {
             alert('You found ammo in the house!');
         }
     });
+}
+
+// Show thank you message
+function showThankYouMessage() {
+    // Create thank you message element
+    const thankYouElement = document.createElement('div');
+    thankYouElement.id = 'thankYouMessage';
+    thankYouElement.style.position = 'absolute';
+    thankYouElement.style.top = '50%';
+    thankYouElement.style.left = '50%';
+    thankYouElement.style.transform = 'translate(-50%, -50%)';
+    thankYouElement.style.color = 'white';
+    thankYouElement.style.fontSize = '24px';
+    thankYouElement.style.textAlign = 'center';
+    thankYouElement.style.zIndex = '100';
+    thankYouElement.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+    thankYouElement.style.padding = '20px';
+    thankYouElement.style.borderRadius = '10px';
+    thankYouElement.style.width = '80%';
+    thankYouElement.style.maxWidth = '600px';
+    thankYouElement.innerHTML = `
+        <h2 style="color: gold; margin-bottom: 20px;">Thank You For Playing!</h2>
+        <p>You have successfully completed Phase 1 of the game.</p>
+        <p>The shotgun is your reward for defeating the leader dog.</p>
+        <p style="margin-top: 30px; font-style: italic;">Created by Mohammed Shaker</p>
+    `;
+    
+    // Add to document
+    document.body.appendChild(thankYouElement);
+    
+    // Remove after 10 seconds
+    setTimeout(() => {
+        if (thankYouElement.parentNode) {
+            thankYouElement.parentNode.removeChild(thankYouElement);
+        }
+    }, 10000);
 }
 
 // Create a new bandage
@@ -1514,6 +1763,46 @@ function animate() {
                 }
             }
         });
+        
+        // Animate victory stars
+        if (victoryCelebration) {
+            victoryStars.forEach(star => {
+                // Float up and down
+                star.position.y = star.userData.initialY + Math.sin(Date.now() * 0.002 + star.userData.floatOffset) * 0.5;
+                
+                // Rotate
+                star.rotation.x += star.userData.rotateSpeed;
+                star.rotation.y += star.userData.rotateSpeed;
+                
+                // Pulse
+                const scale = 1 + Math.sin(Date.now() * 0.005) * 0.2;
+                star.scale.set(scale, scale, scale);
+            });
+            
+            // Check if celebration is over
+            if (Date.now() - victoryTime > victoryDuration) {
+                victoryCelebration = false;
+                
+                // Remove victory stars
+                victoryStars.forEach(star => {
+                    scene.remove(star);
+                });
+                victoryStars = [];
+            }
+        }
+        
+        // Animate shotgun
+        if (shotgunAvailable) {
+            villageObjects.forEach(obj => {
+                if (obj.userData && obj.userData.type === 'shotgun') {
+                    // Float up and down
+                    obj.position.y = obj.userData.initialY + Math.sin(Date.now() * 0.002 + obj.userData.floatOffset) * 0.2;
+                    
+                    // Rotate
+                    obj.rotation.y += 0.01;
+                }
+            });
+        }
     }
     
     renderer.render(scene, camera);
