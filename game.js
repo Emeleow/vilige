@@ -60,6 +60,19 @@ let moveForward = false;
 let moveBackward = false;
 let moveLeft = false;
 let moveRight = false;
+let errorRecoveryMode = false; // Flag to track if we're in error recovery mode
+let errorRecoveryTimeout = null; // Timeout for error recovery
+let performanceMode = false; // Flag for performance mode
+let lastPerformanceCheck = 0; // Time of last performance check
+let frameCount = 0; // Count frames for performance monitoring
+let lastFPSUpdate = 0; // Time of last FPS update
+let currentFPS = 0; // Current FPS
+let lowPerformanceThreshold = 30; // FPS threshold for low performance
+let objectPool = []; // Pool for reusable objects
+let maxObjectsInScene = 200; // Maximum number of objects in scene
+let garbageCollectionInterval = 30000; // 30 seconds between garbage collection
+let lastGarbageCollection = 0; // Time of last garbage collection
+let debugMode = false; // Debug mode flag
 
 // Load 3D models
 const modelLoader = new THREE.GLTFLoader();
@@ -72,77 +85,92 @@ const bandageTexture = new THREE.TextureLoader().load('https://cdn.pixabay.com/p
 
 // Initialize the game
 function init() {
-    // Create scene
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87CEEB); // Sky blue background
-    scene.fog = new THREE.Fog(0x87CEEB, 20, 100); // Add fog for better depth perception
-    
-    // Create camera
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.y = 1.7; // Eye level
-    
-    // Create renderer
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.shadowMap.enabled = true;
-    document.body.appendChild(renderer.domElement);
-    
-    // Add lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-    scene.add(ambientLight);
-    
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(10, 20, 10);
-    directionalLight.castShadow = true;
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
-    scene.add(directionalLight);
-    
-    // Create village environment
-    createVillage();
-    
-    // Load models
-    loadModels();
-    
-    // Create initial dogs (small ones)
-    createDogs();
-    
-    // Create bandages
-    createBandages();
-    
-    // Create ammo pickups
-    createAmmoPickups();
-    
-    // Set up controls
-    controls = new THREE.PointerLockControls(camera, document.body);
-    
-    // Event listeners
-    document.getElementById('startButton').addEventListener('click', startGame);
-    document.getElementById('restartButton').addEventListener('click', restartGame);
-    document.getElementById('exitButton').addEventListener('click', exitGame);
-    document.getElementById('pauseButton').addEventListener('click', togglePause);
-    document.getElementById('resumeButton').addEventListener('click', resumeGame);
-    document.getElementById('restartFromPauseButton').addEventListener('click', restartFromPause);
-    document.getElementById('exitFromPauseButton').addEventListener('click', exitGame);
-    
-    document.addEventListener('mousedown', onMouseDown);
-    document.addEventListener('keydown', onKeyDown);
-    document.addEventListener('keyup', onKeyUp);
-    
-    // Handle window resize
-    window.addEventListener('resize', onWindowResize, false);
-    
-    // Handle visibility change (tab switch, minimize, etc.)
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    
-    // Handle beforeunload (browser close, refresh, etc.)
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    
-    // Store initial position
-    lastPosition.copy(camera.position);
-    
-    // Start game loop
-    animate();
+    try {
+        // Create scene
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); // Sky blue background
+        scene.fog = new THREE.Fog(0x87CEEB, 20, 100); // Add fog for better depth perception
+        
+        // Create camera
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.y = 1.7; // Eye level
+        
+        // Create renderer
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+        
+        // Add lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(10, 20, 10);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        scene.add(directionalLight);
+        
+        // Create village environment
+        createVillage();
+        
+        // Load models
+        loadModels();
+        
+        // Create initial dogs (small ones)
+        createDogs();
+        
+        // Create bandages
+        createBandages();
+        
+        // Create ammo pickups
+        createAmmoPickups();
+        
+        // Set up controls
+        controls = new THREE.PointerLockControls(camera, document.body);
+        
+        // Event listeners
+        document.getElementById('startButton').addEventListener('click', startGame);
+        document.getElementById('restartButton').addEventListener('click', restartGame);
+        document.getElementById('exitButton').addEventListener('click', exitGame);
+        document.getElementById('pauseButton').addEventListener('click', togglePause);
+        document.getElementById('resumeButton').addEventListener('click', resumeGame);
+        document.getElementById('restartFromPauseButton').addEventListener('click', restartFromPause);
+        document.getElementById('exitFromPauseButton').addEventListener('click', exitGame);
+        
+        document.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('keyup', onKeyUp);
+        
+        // Handle window resize
+        window.addEventListener('resize', onWindowResize, false);
+        
+        // Handle visibility change (tab switch, minimize, etc.)
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        
+        // Handle beforeunload (browser close, refresh, etc.)
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        
+        // Store initial position
+        lastPosition.copy(camera.position);
+        
+        // Initialize performance monitoring
+        lastFrameTime = performance.now();
+        lastPerformanceCheck = lastFrameTime;
+        lastFPSUpdate = lastFrameTime;
+        
+        // Start game loop
+        animate();
+        
+        // Start garbage collection interval
+        setInterval(performGarbageCollection, garbageCollectionInterval);
+        
+        console.log("Game initialized successfully");
+    } catch (error) {
+        console.error("Error initializing game:", error);
+        showErrorMessage("Failed to initialize game. Please refresh the page.");
+    }
 }
 
 // Load 3D models
@@ -1624,7 +1652,25 @@ function updateDogBehavior(dog) {
 // Game loop
 function animate() {
     try {
+        // Request next animation frame before doing any work
         animationFrameId = requestAnimationFrame(animate);
+        
+        // Calculate FPS
+        const currentTime = performance.now();
+        frameCount++;
+        
+        // Update FPS counter every second
+        if (currentTime - lastFPSUpdate > 1000) {
+            currentFPS = Math.round((frameCount * 1000) / (currentTime - lastFPSUpdate));
+            frameCount = 0;
+            lastFPSUpdate = currentTime;
+            
+            // Check performance and adjust if needed
+            if (currentTime - lastPerformanceCheck > 5000) { // Check every 5 seconds
+                checkPerformance();
+                lastPerformanceCheck = currentTime;
+            }
+        }
         
         if (!gameStarted || gameOver || gamePaused) {
             renderer.render(scene, camera);
@@ -1632,7 +1678,6 @@ function animate() {
         }
 
         // Calculate delta time for smooth movement
-        const currentTime = performance.now();
         const deltaTime = Math.min((currentTime - lastFrameTime) / 16.67, 2.0); // Cap deltaTime to prevent large jumps
         lastFrameTime = currentTime;
         
@@ -1669,8 +1714,9 @@ function animate() {
             const currentSpeed = isSprinting ? moveSpeed * sprintMultiplier : moveSpeed;
             
             // Apply movement in world space with delta time for smooth movement
-            camera.position.x += moveDirection.x * currentSpeed * deltaTime;
-            camera.position.z += moveDirection.z * currentSpeed * deltaTime;
+            const moveAmount = currentSpeed * deltaTime;
+            camera.position.x += moveDirection.x * moveAmount;
+            camera.position.z += moveDirection.z * moveAmount;
             
             // Update walk cycle for bobbing effect
             walkCycle += bobSpeed * (isSprinting ? 1.5 : 1) * deltaTime;
@@ -1720,7 +1766,12 @@ function animate() {
         
         // Update dog behavior with error handling
         try {
-            dogs.forEach(dog => {
+            // Limit the number of dogs to update per frame for performance
+            const dogsToUpdate = performanceMode ? 
+                dogs.slice(0, Math.min(5, dogs.length)) : 
+                dogs;
+                
+            dogsToUpdate.forEach(dog => {
                 if (dog && dog.userData && dog.userData.health > 0) {
                     updateDogBehavior(dog);
                 }
@@ -1737,7 +1788,12 @@ function animate() {
         
         // Animate bandages with error handling
         try {
-            bandages.forEach(bandage => {
+            // Limit the number of bandages to animate per frame for performance
+            const bandagesToAnimate = performanceMode ? 
+                bandages.slice(0, Math.min(3, bandages.length)) : 
+                bandages;
+                
+            bandagesToAnimate.forEach(bandage => {
                 if (bandage && bandage.userData && bandage.userData.type === 'bandage') {
                     bandage.position.y = 0.1 + Math.sin(Date.now() * 0.002) * 0.1;
                     bandage.rotation.y += 0.01;
@@ -1749,7 +1805,12 @@ function animate() {
         
         // Check for ammo pickups with error handling
         try {
-            ammoPickups.forEach((ammoPickup, index) => {
+            // Limit the number of ammo pickups to check per frame for performance
+            const ammoPickupsToCheck = performanceMode ? 
+                ammoPickups.slice(0, Math.min(3, ammoPickups.length)) : 
+                ammoPickups;
+                
+            ammoPickupsToCheck.forEach((ammoPickup, index) => {
                 if (ammoPickup && ammoPickup.userData && ammoPickup.userData.type === 'ammo') {
                     ammoPickup.position.y = ammoPickup.userData.initialY + Math.sin(Date.now() * 0.002 + ammoPickup.userData.floatOffset) * 0.1;
                     ammoPickup.rotation.y += 0.01;
@@ -1767,7 +1828,12 @@ function animate() {
         // Animate victory effects with error handling
         if (victoryCelebration) {
             try {
-                victoryStars.forEach(star => {
+                // Limit the number of victory stars to animate per frame for performance
+                const starsToAnimate = performanceMode ? 
+                    victoryStars.slice(0, Math.min(10, victoryStars.length)) : 
+                    victoryStars;
+                    
+                starsToAnimate.forEach(star => {
                     if (star && star.userData) {
                         if (star.userData.type === 'firework') {
                             star.position.add(star.userData.velocity);
@@ -1803,7 +1869,12 @@ function animate() {
         // Animate shotgun with error handling
         if (shotgunAvailable) {
             try {
-                villageObjects.forEach(obj => {
+                // Limit the number of objects to check per frame for performance
+                const objectsToCheck = performanceMode ? 
+                    villageObjects.slice(0, Math.min(5, villageObjects.length)) : 
+                    villageObjects;
+                    
+                objectsToCheck.forEach(obj => {
                     if (obj && obj.userData && obj.userData.type === 'shotgun') {
                         obj.position.y = obj.userData.initialY + Math.sin(Date.now() * 0.002 + obj.userData.floatOffset) * 0.2;
                         obj.rotation.y += 0.01;
@@ -1816,33 +1887,38 @@ function animate() {
         
         // Render the scene
         renderer.render(scene, camera);
+        
+        // If we were in error recovery mode and got here, we're recovered
+        if (errorRecoveryMode) {
+            errorRecoveryMode = false;
+            if (errorRecoveryTimeout) {
+                clearTimeout(errorRecoveryTimeout);
+                errorRecoveryTimeout = null;
+            }
+        }
     } catch (error) {
         console.error('Error in game loop:', error);
+        
+        // If we're already in error recovery mode, don't try again
+        if (errorRecoveryMode) {
+            return;
+        }
+        
+        // Enter error recovery mode
+        errorRecoveryMode = true;
+        
         // Try to recover from error
         if (!gamePaused) {
             gamePaused = true;
             controls.unlock();
-            alert('The game encountered an error and has been paused. Press OK to resume.');
-            gamePaused = false;
-            controls.lock();
+            
+            // Set a timeout to automatically resume after 2 seconds
+            errorRecoveryTimeout = setTimeout(() => {
+                gamePaused = false;
+                controls.lock();
+                errorRecoveryMode = false;
+            }, 2000);
         }
-    }
-}
-
-// Handle visibility change (tab switch, minimize, etc.)
-function handleVisibilityChange() {
-    if (document.hidden && gameStarted && !gameOver && !gamePaused) {
-        pauseGame();
-    }
-}
-
-// Handle beforeunload (browser close, refresh, etc.)
-function handleBeforeUnload(event) {
-    if (gameStarted && !gameOver) {
-        cleanup();
-        const message = "Are you sure you want to leave? Your progress will be lost.";
-        event.returnValue = message;
-        return message;
     }
 }
 
@@ -1853,6 +1929,12 @@ function cleanup() {
         if (animationFrameId) {
             cancelAnimationFrame(animationFrameId);
             animationFrameId = null;
+        }
+        
+        // Clear any error recovery timeout
+        if (errorRecoveryTimeout) {
+            clearTimeout(errorRecoveryTimeout);
+            errorRecoveryTimeout = null;
         }
         
         // Remove event listeners
