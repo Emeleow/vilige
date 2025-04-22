@@ -598,73 +598,231 @@ function createDogs() {
 
 // Create leader dog
 function createLeaderDog() {
-    const leaderDog = leaderDogModel.clone();
-    leaderDog.scale.set(1.5, 1.5, 1.5);
-    
-    // Set up leader dog properties
-    leaderDog.userData = {
-        type: 'leader',
-        health: 30,
-        maxHealth: 30,
-        speed: 0.15,
-        damage: 1.5, // One and a half hearts damage
-        attackRange: 2,
-        detectionRange: 25,
-        shotDetectionRange: 40,
-        shotReactionTime: 500,
-        lastShotTime: 0,
-        isAngry: false,
-        state: 'idle',
-        attackPhase: 'approach',
-        isJumping: false,
-        jumpHeight: 0,
-        jumpSpeed: 0.1,
-        maxJumpHeight: 2,
-        lastJumpTime: 0,
-        jumpCooldown: 1000,
-        hasBitten: false,
-        lastBiteTime: 0,
-        biteCooldown: 1000, // 1 second cooldown between bites
-        idleTime: 0,
-        idleDuration: 2000,
-        idleRadius: 5,
-        idlePosition: new THREE.Vector3(),
-        retreatDistance: 3, // Distance to retreat after biting
-        attackPattern: 'bite', // New property to specify attack pattern
-        biteRange: 2.5, // Range for biting attack
-        biteDamage: 2, // Damage dealt by bite
-        biteDuration: 500, // Duration of bite animation
-        isBiting: false // Flag to track if currently biting
-    };
-    
-    // Position the leader dog
-    const angle = Math.random() * Math.PI * 2;
-    const radius = 20;
-    leaderDog.position.set(
-        Math.cos(angle) * radius,
-        0.25,
-        Math.sin(angle) * radius
-    );
-    
-    // Set initial idle position
-    leaderDog.userData.idlePosition.copy(leaderDog.position);
-    
-    // Add to scene
-    scene.add(leaderDog);
-    
-    // Add glow effect
-    const glowGeometry = new THREE.SphereGeometry(1.2, 32, 32);
-    const glowMaterial = new THREE.MeshBasicMaterial({
-        color: 0xFF0000,
-        transparent: true,
-        opacity: 0.3,
-        depthWrite: false
-    });
-    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-    glow.renderOrder = 2;
-    leaderDog.add(glow);
-    
-    return leaderDog;
+    try {
+        // Create a new leader dog instance
+        const leaderDog = new THREE.Group();
+        
+        // Clone the model if available, otherwise use fallback geometry
+        if (leaderDogModel) {
+            const model = leaderDogModel.clone();
+            model.scale.set(1.5, 1.5, 1.5);
+            leaderDog.add(model);
+            
+            // Set material properties for visibility
+            model.traverse((child) => {
+                if (child.isMesh) {
+                    child.material.depthWrite = false;
+                    child.material.depthTest = true;
+                    child.material.transparent = true;
+                    child.material.opacity = 1;
+                    child.renderOrder = 1;
+                }
+            });
+        } else {
+            // Fallback geometry if model fails to load
+            const geometry = new THREE.BoxGeometry(2, 2, 2);
+            const material = new THREE.MeshStandardMaterial({
+                color: 0xff0000,
+                depthWrite: false,
+                depthTest: true,
+                transparent: true,
+                opacity: 1
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.renderOrder = 1;
+            leaderDog.add(mesh);
+        }
+        
+        // Add glow effect
+        const glowGeometry = new THREE.SphereGeometry(1.2, 32, 32);
+        const glowMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff0000,
+            transparent: true,
+            opacity: 0.3,
+            depthWrite: false
+        });
+        const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+        glow.renderOrder = 2;
+        leaderDog.add(glow);
+        
+        // Initialize all properties with default values
+        leaderDog.userData = {
+            type: 'leader',
+            health: 30,
+            maxHealth: 30,
+            speed: 0.15,
+            damage: 1.5,
+            attackRange: 2,
+            detectionRange: 25,
+            shotDetectionRange: 40,
+            shotReactionTime: 500,
+            lastShotTime: 0,
+            isAngry: false,
+            state: 'idle',
+            attackPhase: 'approach',
+            isJumping: false,
+            jumpHeight: 0,
+            jumpSpeed: 0.1,
+            maxJumpHeight: 2,
+            lastJumpTime: 0,
+            jumpCooldown: 1000,
+            hasBitten: false,
+            lastBiteTime: 0,
+            biteCooldown: 1000,
+            idleTime: 0,
+            idleDuration: 2000,
+            idleRadius: 5,
+            idlePosition: new THREE.Vector3(),
+            retreatDistance: 3,
+            attackPattern: 'bite',
+            biteRange: 2.5,
+            biteDamage: 2,
+            biteDuration: 500,
+            isBiting: false,
+            lastPosition: new THREE.Vector3(),
+            lastUpdateTime: Date.now()
+        };
+        
+        // Position the leader dog
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 20;
+        leaderDog.position.set(
+            Math.cos(angle) * radius,
+            0.25,
+            Math.sin(angle) * radius
+        );
+        
+        // Set initial idle position
+        leaderDog.userData.idlePosition.copy(leaderDog.position);
+        leaderDog.userData.lastPosition.copy(leaderDog.position);
+        
+        // Add to scene
+        scene.add(leaderDog);
+        
+        // Create boss health bar if it doesn't exist
+        if (!document.getElementById('bossHealthContainer')) {
+            createBossHealthBar();
+        }
+        
+        return leaderDog;
+    } catch (error) {
+        console.error('Error creating leader dog:', error);
+        handleGameError(error, "leader dog creation");
+        return null;
+    }
+}
+
+// Update leader dog behavior
+function updateLeaderDogBehavior(deltaTime) {
+    try {
+        if (!leaderDog || !leaderDog.userData || gameOver) return;
+        
+        const leader = leaderDog.userData;
+        const distanceToPlayer = leaderDog.position.distanceTo(camera.position);
+        const now = Date.now();
+        
+        // Update detection range based on anger state
+        const currentDetectionRange = leader.isAngry ? 35 : 25;
+        
+        // Check if player is in range
+        if (distanceToPlayer <= currentDetectionRange) {
+            leader.state = 'aggressive';
+            
+            // Handle biting attack pattern
+            if (leader.attackPattern === 'bite') {
+                switch (leader.attackPhase) {
+                    case 'approach':
+                        // Move towards player
+                        const direction = new THREE.Vector3()
+                            .subVectors(camera.position, leaderDog.position)
+                            .normalize();
+                        leaderDog.position.add(direction.multiplyScalar(leader.speed * deltaTime));
+                        
+                        // Check if close enough to bite
+                        if (distanceToPlayer <= leader.biteRange && !leader.isBiting && 
+                            now - leader.lastBiteTime >= leader.biteCooldown) {
+                            leader.attackPhase = 'bite';
+                            leader.isBiting = true;
+                            leader.lastBiteTime = now;
+                        }
+                        break;
+                        
+                    case 'bite':
+                        // Perform bite attack
+                        if (distanceToPlayer <= leader.biteRange) {
+                            // Deal damage to player
+                            takeDamage(leader.biteDamage);
+                            
+                            // Visual feedback for bite
+                            leaderDog.scale.set(1.7, 1.7, 1.7);
+                            setTimeout(() => {
+                                if (leaderDog && leaderDog.userData) {
+                                    leaderDog.scale.set(1.5, 1.5, 1.5);
+                                }
+                            }, 200);
+                        }
+                        
+                        // After bite duration, move to retreat phase
+                        if (now - leader.lastBiteTime >= leader.biteDuration) {
+                            leader.attackPhase = 'retreat';
+                            leader.isBiting = false;
+                        }
+                        break;
+                        
+                    case 'retreat':
+                        // Move away from player
+                        const retreatDir = new THREE.Vector3()
+                            .subVectors(leaderDog.position, camera.position)
+                            .normalize();
+                        leaderDog.position.add(retreatDir.multiplyScalar(leader.speed * deltaTime));
+                        
+                        // After retreating enough, go back to approach
+                        if (distanceToPlayer >= leader.retreatDistance) {
+                            leader.attackPhase = 'approach';
+                        }
+                        break;
+                }
+            }
+            
+            // Update model rotation to face player
+            leaderDog.lookAt(camera.position);
+            
+        } else {
+            // Return to idle state if player is out of range
+            leader.state = 'idle';
+            leader.attackPhase = 'approach';
+            leader.isBiting = false;
+            
+            // Move back to idle position
+            const idleDir = new THREE.Vector3()
+                .subVectors(leader.idlePosition, leaderDog.position)
+                .normalize();
+            leaderDog.position.add(idleDir.multiplyScalar(leader.speed * 0.5 * deltaTime));
+        }
+        
+        // Check for becoming angry at half health
+        if (!leader.isAngry && leader.health <= leader.maxHealth / 2) {
+            leader.isAngry = true;
+            leader.speed *= 1.5;
+            leader.biteCooldown *= 0.8; // Faster bites when angry
+            
+            // Visual feedback for becoming angry
+            leaderDog.scale.set(1.8, 1.8, 1.8);
+            setTimeout(() => {
+                if (leaderDog && leaderDog.userData) {
+                    leaderDog.scale.set(1.5, 1.5, 1.5);
+                }
+            }, 500);
+        }
+        
+        // Update last position and time
+        leader.lastPosition.copy(leaderDog.position);
+        leader.lastUpdateTime = now;
+        
+    } catch (error) {
+        console.error('Error updating leader dog behavior:', error);
+        handleGameError(error, "leader dog behavior update");
+    }
 }
 
 // Create boss health bar
@@ -2277,105 +2435,6 @@ init();
 // Clean up when window is closed
 window.addEventListener('unload', cleanup); 
 
-function updateLeaderDogBehavior(deltaTime) {
-    if (!leaderDog || gameOver) return;
-    
-    const leader = leaderDog.userData;
-    const distanceToPlayer = leaderDog.position.distanceTo(camera.position);
-    const now = Date.now();
-    
-    // Update detection range based on anger state
-    const currentDetectionRange = leader.isAngry ? 35 : 25;
-    
-    // Check if player is in range
-    if (distanceToPlayer <= currentDetectionRange) {
-        leader.state = 'aggressive';
-        
-        // Handle biting attack pattern
-        if (leader.attackPattern === 'bite') {
-            switch (leader.attackPhase) {
-                case 'approach':
-                    // Move towards player
-                    const direction = new THREE.Vector3()
-                        .subVectors(camera.position, leaderDog.position)
-                        .normalize();
-                    leaderDog.position.add(direction.multiplyScalar(leader.speed));
-                    
-                    // Check if close enough to bite
-                    if (distanceToPlayer <= leader.biteRange && !leader.isBiting && 
-                        now - leader.lastBiteTime >= leader.biteCooldown) {
-                        leader.attackPhase = 'bite';
-                        leader.isBiting = true;
-                        leader.lastBiteTime = now;
-                    }
-                    break;
-                    
-                case 'bite':
-                    // Perform bite attack
-                    if (distanceToPlayer <= leader.biteRange) {
-                        // Deal damage to player
-                        takeDamage(leader.biteDamage);
-                        
-                        // Visual feedback for bite
-                        leaderDog.scale.set(1.7, 1.7, 1.7);
-                        setTimeout(() => {
-                            leaderDog.scale.set(1.5, 1.5, 1.5);
-                        }, 200);
-                    }
-                    
-                    // After bite duration, move to retreat phase
-                    if (now - leader.lastBiteTime >= leader.biteDuration) {
-                        leader.attackPhase = 'retreat';
-                        leader.isBiting = false;
-                    }
-                    break;
-                    
-                case 'retreat':
-                    // Move away from player
-                    const retreatDir = new THREE.Vector3()
-                        .subVectors(leaderDog.position, camera.position)
-                        .normalize();
-                    leaderDog.position.add(retreatDir.multiplyScalar(leader.speed));
-                    
-                    // After retreating enough, go back to approach
-                    if (distanceToPlayer >= leader.retreatDistance) {
-                        leader.attackPhase = 'approach';
-                    }
-                    break;
-            }
-        }
-        
-        // Update model rotation to face player
-        leaderDog.lookAt(camera.position);
-        
-    } else {
-        // Return to idle state if player is out of range
-        leader.state = 'idle';
-        leader.attackPhase = 'approach';
-        leader.isBiting = false;
-        
-        // Move back to idle position
-        const idleDir = new THREE.Vector3()
-            .subVectors(leader.idlePosition, leaderDog.position)
-            .normalize();
-        leaderDog.position.add(idleDir.multiplyScalar(leader.speed * 0.5));
-    }
-    
-    // Check for becoming angry at half health
-    if (!leader.isAngry && leader.health <= leader.maxHealth / 2) {
-        leader.isAngry = true;
-        leader.speed *= 1.5;
-        leader.biteCooldown *= 0.8; // Faster bites when angry
-        
-        // Visual feedback for becoming angry
-        leaderDog.scale.set(1.8, 1.8, 1.8);
-        setTimeout(() => {
-            leaderDog.scale.set(1.5, 1.5, 1.5);
-        }, 500);
-    }
-}
-
-// Function to handle errors in the game
 function handleGameError(error, context) {
     if (!errorHandlingEnabled) return;
     
