@@ -560,6 +560,19 @@ function createLeaderDog() {
     if (leaderDogModel) {
         leader = leaderDogModel.clone();
         leader.scale.set(1.5, 1.5, 1.5); // Make leader dog much larger
+        
+        // Modify all meshes in the leader dog model to ensure visibility
+        leader.traverse(function(child) {
+            if (child.isMesh) {
+                child.material.depthWrite = false; // Disable depth writing
+                child.material.depthTest = true;   // Keep depth testing
+                child.material.transparent = true; // Enable transparency
+                child.material.opacity = 1;        // Full opacity
+                child.renderOrder = 1;             // Render after other objects
+                child.castShadow = true;
+                child.receiveShadow = true;
+            }
+        });
     } else {
         // Fallback to simple geometry if model not loaded
         const leaderGeometry = new THREE.BoxGeometry(2, 2, 4);
@@ -567,9 +580,14 @@ function createLeaderDog() {
             color: 0xFF0000, // Bright red color for better visibility
             emissive: 0x330000, // Add slight glow
             roughness: 0.7,
-            metalness: 0.3
+            metalness: 0.3,
+            depthWrite: false, // Disable depth writing
+            depthTest: true,   // Keep depth testing
+            transparent: true, // Enable transparency
+            opacity: 1        // Full opacity
         });
         leader = new THREE.Mesh(leaderGeometry, leaderMaterial);
+        leader.renderOrder = 1; // Render after other objects
     }
     
     // Position leader dog
@@ -577,7 +595,7 @@ function createLeaderDog() {
     const radius = 30;
     leader.position.x = Math.cos(angle) * radius;
     leader.position.z = Math.sin(angle) * radius;
-    leader.position.y = 1; // Higher off the ground to make it more visible
+    leader.position.y = 1;
     
     // Add leader properties
     leader.userData = {
@@ -613,7 +631,10 @@ function createLeaderDog() {
     const glowMaterial = new THREE.MeshBasicMaterial({
         color: 0xFF0000,
         transparent: true,
-        opacity: 0.3
+        opacity: 0.3,
+        depthWrite: false, // Disable depth writing
+        depthTest: true,   // Keep depth testing
+        renderOrder: 2     // Render after the boss
     });
     const glowGeometry = new THREE.BoxGeometry(2.2, 2.2, 4.2);
     const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
@@ -1041,11 +1062,18 @@ function shoot() {
                 hitDog.userData.speed = 0.06; // Faster
                 hitDog.userData.detectionRange = 35; // Increased detection range when angry
                 
-                // Spawn power-up closer to player
-                spawnPowerUpNearPlayer();
+                // Add visual effect for angry transformation
+                hitDog.material.emissive.setHex(0xFF0000);
+                hitDog.material.emissiveIntensity = 0.8;
                 
                 // Show warning with pause
-                showWarningMessage("The leader dog is getting angry! A new weapon has appeared nearby!");
+                showWarningMessage("The leader dog is getting angry! It's becoming more aggressive!");
+                
+                // Spawn power-up after a short delay
+                setTimeout(() => {
+                    spawnPowerUpNearPlayer();
+                    showWarningMessage("A new weapon has appeared nearby! It might help against the angry boss!");
+                }, 2000);
             }
         } else {
             // Regular dogs take full damage
