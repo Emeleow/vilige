@@ -9,11 +9,14 @@ let gameStarted = false;
 let gamePaused = false;
 let villageObjects = [];
 let playerHealth = 18; // Start with 18 hearts
+let maxHealth = 18; // Maximum health
 let currentWeapon = 'pistol';
 let powerUpAvailable = false;
 let powerUpPosition = new THREE.Vector3();
 let lastAttackTime = 0;
 let attackCooldown = 1000; // 1 second cooldown between dog attacks
+let lastDogBiteTime = 0; // Track last dog bite time
+let dogBiteCooldown = 1000; // 1 second cooldown between dog bites
 let distanceTraveled = 0;
 let lastPosition = new THREE.Vector3();
 let bossSpawned = false;
@@ -1503,7 +1506,7 @@ function updateAmmoDisplay() {
 function updateHealthDisplay() {
     const healthBar = document.getElementById('health');
     if (healthBar) {
-        healthBar.textContent = `Health: ${playerHealth}/18`;
+        healthBar.textContent = `Health: ${playerHealth}/${maxHealth}`;
     }
 }
 
@@ -1517,7 +1520,11 @@ function updateBandageDisplay() {
 
 // Take damage from dog
 function takeDamage(damage) {
-    playerHealth -= damage;
+    const now = Date.now();
+    if (now - lastDogBiteTime < dogBiteCooldown) return; // Check cooldown
+    
+    lastDogBiteTime = now; // Update last bite time
+    playerHealth = Math.max(0, playerHealth - damage); // Ensure health doesn't go below 0
     updateHealthDisplay();
     
     // Visual feedback
@@ -1594,19 +1601,10 @@ function updateDogBehavior(dog) {
             // Move towards player
             dog.position.add(chaseDirection.multiplyScalar(userData.speed));
             
-            // Bite when close enough
-            if (distanceToPlayer <= userData.attackRange) {
-                // Deal damage to player
-                playerHealth -= userData.damage;
-                updateHealthDisplay();
+            // Bite when close enough and cooldown has passed
+            if (distanceToPlayer <= userData.attackRange && now - lastDogBiteTime >= dogBiteCooldown) {
+                takeDamage(userData.damage);
                 showDamageMessage(`Dog bit you for ${userData.damage} hearts!`);
-                
-                // Check if player is dead
-                if (playerHealth <= 0) {
-                    gameOver = true;
-                    document.getElementById('finalScore').textContent = score;
-                    document.getElementById('gameOverScreen').style.display = 'flex';
-                }
             }
             break;
     }
@@ -2022,6 +2020,7 @@ window.addEventListener('unload', cleanup);
 function updateLeaderDogBehavior(dog, deltaTime) {
     const distanceToPlayer = dog.position.distanceTo(camera.position);
     const userData = dog.userData;
+    const now = Date.now();
     
     // Update state based on distance
     if (distanceToPlayer > userData.detectionRange) {
@@ -2073,19 +2072,10 @@ function updateLeaderDogBehavior(dog, deltaTime) {
             // Move towards player
             dog.position.add(chaseDirection.multiplyScalar(userData.speed * deltaTime));
             
-            // Bite when close enough
-            if (distanceToPlayer <= userData.attackRange) {
-                // Deal damage to player
-                playerHealth -= userData.damage;
-                updateHealthDisplay();
+            // Bite when close enough and cooldown has passed
+            if (distanceToPlayer <= userData.attackRange && now - lastDogBiteTime >= dogBiteCooldown) {
+                takeDamage(userData.damage);
                 showDamageMessage(`Boss dog bit you for ${userData.damage} hearts!`);
-                
-                // Check if player is dead
-                if (playerHealth <= 0) {
-                    gameOver = true;
-                    document.getElementById('finalScore').textContent = score;
-                    document.getElementById('gameOverScreen').style.display = 'flex';
-                }
             }
             break;
     }
