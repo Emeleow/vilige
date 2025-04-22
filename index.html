@@ -54,7 +54,7 @@
             font-size: 24px;
             z-index: 100;
         }
-        #startScreen, #gameOverScreen {
+        #startScreen, #gameOverScreen, #pauseMenu {
             position: absolute;
             top: 0;
             left: 0;
@@ -64,9 +64,12 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            background-color: rgba(0, 0, 0, 0.7);
+            background-color: rgba(0, 0, 0, 0.8);
             color: white;
-            z-index: 200;
+            z-index: 100;
+        }
+        #gameOverScreen, #pauseMenu {
+            display: none;
         }
         #startScreen h1, #gameOverScreen h1 {
             font-size: 48px;
@@ -138,33 +141,120 @@
             padding: 20px;
             border-radius: 10px;
         }
+        button {
+            padding: 15px 30px;
+            margin: 10px;
+            font-size: 18px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #score, #health, #ammo, #bandages, #explorationProgress {
+            position: absolute;
+            padding: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            color: white;
+            border-radius: 5px;
+            z-index: 10;
+        }
+        #score {
+            top: 10px;
+            left: 10px;
+        }
+        #health {
+            top: 10px;
+            right: 10px;
+        }
+        #ammo {
+            bottom: 10px;
+            left: 10px;
+        }
+        #bandages {
+            bottom: 10px;
+            right: 10px;
+        }
+        #explorationProgress {
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            height: 20px;
+            background-color: rgba(0, 0, 0, 0.5);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        #explorationProgressBar {
+            height: 100%;
+            width: 0%;
+            background-color: #4CAF50;
+            transition: width 0.3s;
+        }
+        #pauseButton {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 5px 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            z-index: 10;
+        }
+        .instructions {
+            max-width: 600px;
+            text-align: center;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
     </style>
 </head>
 <body>
     <div id="startScreen">
-        <h1>Dog Shooter Game</h1>
-        <p>Welcome to the village! You need to defeat the dogs that are terrorizing the area.</p>
-        <p>Find and defeat the boss dog to win the game!</p>
-        <ul class="controls-list">
-            <li>WASD: Move around the village</li>
-            <li>Mouse: Look around and aim</li>
-            <li>Left Click: Shoot</li>
-            <li>R: Reload your weapon</li>
-            <li>E: Pick up power-ups and bandages</li>
-            <li>H: Use bandage to heal (2 hearts)</li>
-        </ul>
-        <p>Watch out for the boss dog that appears after you explore the village!</p>
-        <p>Dogs will become aggressive if you get too close to them. Stay away until you're ready to fight!</p>
-        <button id="startButton" class="button">Start Game</button>
+        <h1>3D Dog Shooter Game</h1>
+        <div class="instructions">
+            <p>Welcome to the 3D Dog Shooter Game! Explore a village and defend yourself from aggressive dogs.</p>
+            <p><strong>Controls:</strong></p>
+            <ul style="text-align: left; display: inline-block;">
+                <li>W, A, S, D - Move around</li>
+                <li>Mouse - Look around</li>
+                <li>Left Click - Shoot</li>
+                <li>R - Reload</li>
+                <li>E - Pick up power-ups</li>
+                <li>H - Use bandage</li>
+                <li>Space - Jump</li>
+                <li>Esc - Pause game</li>
+            </ul>
+            <p>Dogs will become aggressive when you get close to them. They will jump to attack you, giving you time to react.</p>
+            <p>Find houses to reload your ammo and collect bandages to heal yourself.</p>
+            <p>Defeat the leader dog to win the game!</p>
+        </div>
+        <button id="startButton">Start Game</button>
     </div>
-    
-    <div id="gameOverScreen" style="display: none;">
+
+    <div id="gameOverScreen">
         <h1>Game Over</h1>
-        <p>You were defeated by the dogs!</p>
         <p>Your final score: <span id="finalScore">0</span></p>
-        <button id="restartButton" class="button">Play Again</button>
+        <button id="restartButton">Play Again</button>
+        <button id="exitButton">Exit Game</button>
     </div>
-    
+
+    <div id="pauseMenu">
+        <h1>Game Paused</h1>
+        <button id="resumeButton">Resume Game</button>
+        <button id="restartFromPauseButton">Restart Game</button>
+        <button id="exitFromPauseButton">Exit Game</button>
+    </div>
+
+    <button id="pauseButton">Pause</button>
+
     <div id="score">Score: 0</div>
     <div id="health">Health: 10/10</div>
     <div id="ammo">Ammo: 30</div>
