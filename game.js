@@ -6,6 +6,7 @@ let score = 0;
 let ammo = 30;
 let gameOver = false;
 let gameStarted = false;
+let gamePaused = false;
 let villageObjects = [];
 let playerHealth = 10; // 10 hearts
 let currentWeapon = 'pistol';
@@ -25,6 +26,13 @@ let healCooldown = 5000; // 5 seconds cooldown between heals
 let gamePhase = 0; // 0: exploration, 1: combat
 let explorationTime = 0; // Time spent in exploration phase
 let explorationDuration = 10000; // 10 seconds of exploration before combat phase
+let isJumping = false;
+let jumpHeight = 0;
+let maxJumpHeight = 2;
+let jumpSpeed = 0.1;
+let gravity = 0.05;
+let houses = []; // Array to store houses for ammo reload
+let animationFrameId = null; // Store animation frame ID for cleanup
 
 // Load 3D models
 const modelLoader = new THREE.GLTFLoader();
@@ -81,12 +89,24 @@ function init() {
     // Event listeners
     document.getElementById('startButton').addEventListener('click', startGame);
     document.getElementById('restartButton').addEventListener('click', restartGame);
+    document.getElementById('exitButton').addEventListener('click', exitGame);
+    document.getElementById('pauseButton').addEventListener('click', togglePause);
+    document.getElementById('resumeButton').addEventListener('click', resumeGame);
+    document.getElementById('restartFromPauseButton').addEventListener('click', restartFromPause);
+    document.getElementById('exitFromPauseButton').addEventListener('click', exitGame);
     
     document.addEventListener('mousedown', onMouseDown);
     document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keyup', onKeyUp);
     
     // Handle window resize
     window.addEventListener('resize', onWindowResize, false);
+    
+    // Handle visibility change (tab switch, minimize, etc.)
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Handle beforeunload (browser close, refresh, etc.)
+    window.addEventListener('beforeunload', handleBeforeUnload);
     
     // Store initial position
     lastPosition.copy(camera.position);
@@ -124,7 +144,7 @@ function loadModels() {
     // Load leader dog model (larger version)
     modelLoader.load('https://threejs.org/examples/models/gltf/Dog.glb', function(gltf) {
         leaderDogModel = gltf.scene;
-        leaderDogModel.scale.set(0.8, 0.8, 0.8); // Make leader dog larger but not too large
+        leaderDogModel.scale.set(1.5, 1.5, 1.5); // Make leader dog much larger
         
         // Add fur material to make it look more realistic
         leaderDogModel.traverse(function(child) {
@@ -230,6 +250,7 @@ function createVillage() {
         house.receiveShadow = true;
         scene.add(house);
         villageObjects.push(house);
+        houses.push(house); // Add to houses array for ammo reload
         
         // Add roof
         const roofGeometry = new THREE.ConeGeometry(4, 2, 4);
@@ -271,6 +292,18 @@ function createVillage() {
             window.castShadow = true;
             house.add(window);
         }
+        
+        // Add ammo box indicator
+        const ammoBoxGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+        const ammoBoxMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xFFFF00,
+            roughness: 0.5,
+            metalness: 0.5
+        });
+        const ammoBox = new THREE.Mesh(ammoBoxGeometry, ammoBoxMaterial);
+        ammoBox.position.set(0, 2, 0);
+        ammoBox.userData = { type: 'ammoBox' };
+        house.add(ammoBox);
     }
     
     // Trees
@@ -466,7 +499,14 @@ function createDogs() {
             idleTime: 0,
             idleDuration: 2000 + Math.random() * 3000, // 2-5 seconds
             idlePosition: new THREE.Vector3().copy(dog.position),
-            idleRadius: 2 + Math.random() * 3 // 2-5 units
+            idleRadius: 2 + Math.random() * 3, // 2-5 units
+            isJumping: false,
+            jumpHeight: 0,
+            maxJumpHeight: 1.5,
+            jumpSpeed: 0.1,
+            jumpCooldown: 2000, // 2 seconds between jumps
+            lastJumpTime: 0,
+            attackPhase: 'approach' // approach, jump, attack, retreat
         };
         
         dog.castShadow = true;
@@ -483,10 +523,10 @@ function createLeaderDog() {
     
     if (leaderDogModel) {
         leader = leaderDogModel.clone();
-        leader.scale.set(0.8, 0.8, 0.8); // Make leader dog larger but not too large
+        leader.scale.set(1.5, 1.5, 1.5); // Make leader dog much larger
     } else {
         // Fallback to simple geometry if model not loaded
-        const leaderGeometry = new THREE.BoxGeometry(1, 1, 2);
+        const leaderGeometry = new THREE.BoxGeometry(2, 2, 4);
         const leaderMaterial = new THREE.MeshStandardMaterial({ 
             color: 0x8B4513,
             map: brownDogTexture
@@ -499,7 +539,7 @@ function createLeaderDog() {
     const radius = 30;
     leader.position.x = Math.cos(angle) * radius;
     leader.position.z = Math.sin(angle) * radius;
-    leader.position.y = 0.5; // Lower to the ground
+    leader.position.y = 1; // Higher off the ground to make it more visible
     
     // Add leader properties
     leader.userData = {
@@ -518,7 +558,14 @@ function createLeaderDog() {
         idleTime: 0,
         idleDuration: 3000 + Math.random() * 2000, // 3-5 seconds
         idlePosition: new THREE.Vector3().copy(leader.position),
-        idleRadius: 3 + Math.random() * 2 // 3-5 units
+        idleRadius: 3 + Math.random() * 2, // 3-5 units
+        isJumping: false,
+        jumpHeight: 0,
+        maxJumpHeight: 2.5,
+        jumpSpeed: 0.15,
+        jumpCooldown: 1500, // 1.5 seconds between jumps
+        lastJumpTime: 0,
+        attackPhase: 'approach' // approach, jump, attack, retreat
     };
     
     leader.castShadow = true;
@@ -536,6 +583,7 @@ function startGame() {
     document.getElementById('startScreen').style.display = 'none';
     controls.lock();
     gameStarted = true;
+    gamePaused = false;
     gamePhase = 0; // Start in exploration phase
     explorationTime = 0;
     
@@ -570,12 +618,15 @@ function restartGame() {
     score = 0;
     ammo = 30;
     gameOver = false;
+    gamePaused = false;
     playerHealth = 10;
     distanceTraveled = 0;
     bossSpawned = false;
     bandageCount = 0;
     gamePhase = 0;
     explorationTime = 0;
+    isJumping = false;
+    jumpHeight = 0;
     
     // Remove all dogs
     dogs.forEach(dog => {
@@ -642,9 +693,99 @@ function restartGame() {
     }, 5000);
 }
 
+// Restart from pause menu
+function restartFromPause() {
+    document.getElementById('pauseMenu').style.display = 'none';
+    restartGame();
+}
+
+// Toggle pause state
+function togglePause() {
+    if (!gameStarted || gameOver) return;
+    
+    if (gamePaused) {
+        resumeGame();
+    } else {
+        pauseGame();
+    }
+}
+
+// Pause the game
+function pauseGame() {
+    if (!gameStarted || gameOver) return;
+    
+    gamePaused = true;
+    controls.unlock();
+    document.getElementById('pauseMenu').style.display = 'flex';
+}
+
+// Resume the game
+function resumeGame() {
+    if (!gameStarted || gameOver) return;
+    
+    gamePaused = false;
+    controls.lock();
+    document.getElementById('pauseMenu').style.display = 'none';
+}
+
+// Exit the game
+function exitGame() {
+    // Reset game state
+    gameStarted = false;
+    gamePaused = false;
+    
+    // Unlock controls
+    controls.unlock();
+    
+    // Hide all game screens
+    document.getElementById('gameOverScreen').style.display = 'none';
+    document.getElementById('pauseMenu').style.display = 'none';
+    
+    // Show start screen
+    document.getElementById('startScreen').style.display = 'flex';
+    
+    // Reset game variables
+    score = 0;
+    ammo = 30;
+    gameOver = false;
+    playerHealth = 10;
+    distanceTraveled = 0;
+    bossSpawned = false;
+    bandageCount = 0;
+    gamePhase = 0;
+    explorationTime = 0;
+    isJumping = false;
+    jumpHeight = 0;
+    
+    // Update displays
+    updateScoreDisplay();
+    updateHealthDisplay();
+    updateAmmoDisplay();
+    updateBandageDisplay();
+}
+
+// Handle visibility change (tab switch, minimize, etc.)
+function handleVisibilityChange() {
+    if (document.hidden && gameStarted && !gameOver && !gamePaused) {
+        // Auto-pause when tab is switched or window is minimized
+        pauseGame();
+    }
+}
+
+// Handle beforeunload (browser close, refresh, etc.)
+function handleBeforeUnload(event) {
+    if (gameStarted && !gameOver) {
+        // Save game state if needed
+        // For now, just show a confirmation message
+        const message = "Are you sure you want to leave? Your progress will be lost.";
+        event.returnValue = message;
+        return message;
+    }
+}
+
 // Handle mouse input
 function onMouseDown(event) {
-    if (!gameStarted || gameOver) return;
+    if (!gameStarted || gameOver || gamePaused) return;
     
     // Left click to shoot
     if (event.button === 0) {
@@ -654,22 +795,29 @@ function onMouseDown(event) {
 
 // Handle keyboard input
 function onKeyDown(event) {
-    if (!gameStarted || gameOver) return;
+    if (!gameStarted || gameOver || gamePaused) return;
     
     const speed = 0.2;
+    const moveDirection = new THREE.Vector3();
     
     switch (event.code) {
         case 'KeyW':
-            controls.moveForward(speed);
+            moveDirection.z -= 1;
             break;
         case 'KeyS':
-            controls.moveForward(-speed);
+            moveDirection.z += 1;
             break;
         case 'KeyA':
-            controls.moveRight(-speed);
+            moveDirection.x -= 1;
             break;
         case 'KeyD':
-            controls.moveRight(speed);
+            moveDirection.x += 1;
+            break;
+        case 'Space':
+            if (!isJumping) {
+                isJumping = true;
+                jumpHeight = 0;
+            }
             break;
         case 'KeyR':
             reload();
@@ -679,6 +827,30 @@ function onKeyDown(event) {
             break;
         case 'KeyH':
             useBandage();
+            break;
+        case 'Escape':
+            togglePause();
+            break;
+    }
+    
+    // Normalize and apply movement
+    if (moveDirection.length() > 0) {
+        moveDirection.normalize();
+        moveDirection.multiplyScalar(speed);
+        
+        // Apply movement in world space
+        camera.position.x += moveDirection.x;
+        camera.position.z += moveDirection.z;
+    }
+}
+
+// Handle key up events
+function onKeyUp(event) {
+    // Handle key release events if needed
+    switch (event.code) {
+        case 'Escape':
+            // Prevent default behavior (browser menu)
+            event.preventDefault();
             break;
     }
 }
@@ -818,6 +990,15 @@ function pickupPowerUp() {
                     createNewBandage();
                 }, 30000); // 30 seconds
             }
+        }
+    });
+    
+    // Check for houses to reload ammo
+    houses.forEach(house => {
+        const distance = camera.position.distanceTo(house.position);
+        if (distance < 5) {
+            reload();
+            alert('You found ammo in the house!');
         }
     });
 }
@@ -1020,27 +1201,79 @@ function updateDogBehavior(dog) {
             break;
             
         case 'aggressive':
-            // Aggressive behavior - chase and attack player
-            const chaseDirection = new THREE.Vector3();
-            chaseDirection.subVectors(camera.position, dog.position).normalize();
-            dog.position.add(chaseDirection.multiplyScalar(dog.userData.speed));
+            // Aggressive behavior - chase and attack player with jumping attacks
+            const now = Date.now();
             
-            // Make dog face the player
-            dog.lookAt(camera.position);
-            
-            // Check if dog is close enough to attack
-            if (distance < dog.userData.attackRange) {
-                const now = Date.now();
-                if (now - dog.userData.lastAttackTime > dog.userData.attackCooldown) {
-                    takeDamage(dog.userData.damage);
-                    dog.userData.lastAttackTime = now;
+            // Handle jumping attack behavior
+            if (dog.userData.attackPhase === 'approach') {
+                // Approach the player
+                const chaseDirection = new THREE.Vector3();
+                chaseDirection.subVectors(camera.position, dog.position).normalize();
+                dog.position.add(chaseDirection.multiplyScalar(dog.userData.speed));
+                
+                // Make dog face the player
+                dog.lookAt(camera.position);
+                
+                // Check if close enough to jump
+                if (distance < dog.userData.attackRange * 1.5 && 
+                    now - dog.userData.lastJumpTime > dog.userData.jumpCooldown) {
+                    dog.userData.attackPhase = 'jump';
+                    dog.userData.isJumping = true;
+                    dog.userData.jumpHeight = 0;
+                    dog.userData.lastJumpTime = now;
+                }
+            } 
+            else if (dog.userData.attackPhase === 'jump') {
+                // Jumping phase
+                if (dog.userData.isJumping) {
+                    if (dog.userData.jumpHeight < dog.userData.maxJumpHeight) {
+                        // Jump up
+                        dog.userData.jumpHeight += dog.userData.jumpSpeed;
+                        dog.position.y += dog.userData.jumpSpeed;
+                    } else {
+                        // Start falling
+                        dog.userData.isJumping = false;
+                    }
+                } else {
+                    // Falling phase
+                    dog.position.y -= dog.userData.jumpSpeed;
                     
-                    // Visual feedback for attack
-                    const originalColor = dog.material.color.getHex();
-                    dog.material.color.set(0xFF0000);
-                    setTimeout(() => {
-                        dog.material.color.set(originalColor);
-                    }, 100);
+                    // Check if landed
+                    if (dog.position.y <= 0.25) {
+                        dog.position.y = 0.25;
+                        dog.userData.attackPhase = 'attack';
+                    }
+                }
+            }
+            else if (dog.userData.attackPhase === 'attack') {
+                // Attack phase - check if close enough to bite
+                if (distance < dog.userData.attackRange) {
+                    const attackNow = Date.now();
+                    if (attackNow - dog.userData.lastAttackTime > dog.userData.attackCooldown) {
+                        takeDamage(dog.userData.damage);
+                        dog.userData.lastAttackTime = attackNow;
+                        
+                        // Visual feedback for attack
+                        const originalColor = dog.material.color.getHex();
+                        dog.material.color.set(0xFF0000);
+                        setTimeout(() => {
+                            dog.material.color.set(originalColor);
+                        }, 100);
+                    }
+                }
+                
+                // Move to retreat phase
+                dog.userData.attackPhase = 'retreat';
+            }
+            else if (dog.userData.attackPhase === 'retreat') {
+                // Retreat phase - move away from player
+                const retreatDirection = new THREE.Vector3();
+                retreatDirection.subVectors(dog.position, camera.position).normalize();
+                dog.position.add(retreatDirection.multiplyScalar(dog.userData.speed * 0.7));
+                
+                // After retreating, go back to approach phase
+                if (distance > dog.userData.attackRange * 2) {
+                    dog.userData.attackPhase = 'approach';
                 }
             }
             break;
@@ -1049,13 +1282,29 @@ function updateDogBehavior(dog) {
 
 // Game loop
 function animate() {
-    requestAnimationFrame(animate);
+    animationFrameId = requestAnimationFrame(animate);
     
-    if (gameStarted && !gameOver) {
+    if (gameStarted && !gameOver && !gamePaused) {
         // Calculate distance traveled
         const currentPosition = camera.position.clone();
         distanceTraveled += currentPosition.distanceTo(lastPosition);
         lastPosition.copy(currentPosition);
+        
+        // Handle jumping
+        if (isJumping) {
+            if (jumpHeight < maxJumpHeight) {
+                jumpHeight += jumpSpeed;
+                camera.position.y += jumpSpeed;
+            } else {
+                isJumping = false;
+            }
+        } else if (camera.position.y > 1.7) {
+            // Apply gravity
+            camera.position.y -= gravity;
+            if (camera.position.y < 1.7) {
+                camera.position.y = 1.7;
+            }
+        }
         
         // Update exploration time
         if (gamePhase === 0) {
@@ -1063,7 +1312,7 @@ function animate() {
             
             // Show exploration progress
             const progress = Math.min(explorationTime / explorationDuration, 1);
-            const progressBar = document.getElementById('explorationProgress');
+            const progressBar = document.getElementById('explorationProgressBar');
             if (progressBar) {
                 progressBar.style.width = `${progress * 100}%`;
             }
@@ -1128,5 +1377,43 @@ function animate() {
     renderer.render(scene, camera);
 }
 
+// Clean up resources when game is closed
+function cleanup() {
+    // Cancel animation frame
+    if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+    }
+    
+    // Remove event listeners
+    document.removeEventListener('mousedown', onMouseDown);
+    document.removeEventListener('keydown', onKeyDown);
+    document.removeEventListener('keyup', onKeyUp);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('beforeunload', handleBeforeUnload);
+    
+    // Dispose of Three.js resources
+    if (renderer) {
+        renderer.dispose();
+    }
+    
+    if (scene) {
+        scene.traverse(object => {
+            if (object.geometry) {
+                object.geometry.dispose();
+            }
+            if (object.material) {
+                if (Array.isArray(object.material)) {
+                    object.material.forEach(material => material.dispose());
+                } else {
+                    object.material.dispose();
+                }
+            }
+        });
+    }
+}
+
 // Start the game
-init(); 
+init();
+
+// Clean up when window is closed
+window.addEventListener('unload', cleanup); 
