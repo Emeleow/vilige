@@ -8,7 +8,7 @@ let gameOver = false;
 let gameStarted = false;
 let gamePaused = false;
 let villageObjects = [];
-let playerHealth = 10; // 10 hearts
+let playerHealth = 18; // Start with 18 hearts
 let currentWeapon = 'pistol';
 let powerUpAvailable = false;
 let powerUpPosition = new THREE.Vector3();
@@ -723,7 +723,7 @@ function restartGame() {
     ammo = 100; // Reset to 100 ammo
     gameOver = false;
     gamePaused = false;
-    playerHealth = 10;
+    playerHealth = 18;
     distanceTraveled = 0;
     bossSpawned = false;
     bandageCount = 0;
@@ -868,7 +868,7 @@ function exitGame() {
     score = 0;
     ammo = 100; // Reset to 100 ammo
     gameOver = false;
-    playerHealth = 10;
+    playerHealth = 18;
     distanceTraveled = 0;
     bossSpawned = false;
     bandageCount = 0;
@@ -1465,7 +1465,7 @@ function useBandage() {
     if (now - lastHealTime < healCooldown) return;
     
     // Heal player
-    playerHealth = Math.min(playerHealth + 2, 10);
+    playerHealth = Math.min(playerHealth + 2, 18);
     updateHealthDisplay();
     
     // Use bandage
@@ -1503,7 +1503,7 @@ function updateAmmoDisplay() {
 function updateHealthDisplay() {
     const healthBar = document.getElementById('health');
     if (healthBar) {
-        healthBar.textContent = `Health: ${playerHealth}/10`;
+        healthBar.textContent = `Health: ${playerHealth}/18`;
     }
 }
 
@@ -1586,80 +1586,33 @@ function updateDogBehavior(dog) {
             break;
             
         case 'aggressive':
-            // Attack pattern
-            switch (userData.attackPhase) {
-                case 'approach':
-                    // Move towards player
-                    const approachDirection = new THREE.Vector3()
-                        .subVectors(camera.position, dog.position)
-                        .normalize();
-                    dog.position.add(approachDirection.multiplyScalar(userData.speed));
-                    
-                    // Start jump when close enough
-                    if (distanceToPlayer < userData.attackRange * 1.5) {
-                        userData.attackPhase = 'jump';
-                        userData.isJumping = true;
-                        userData.jumpHeight = 0;
-                        userData.lastJumpTime = now;
-                    }
-                    break;
-                    
-                case 'jump':
-                    if (userData.isJumping) {
-                        // Continue jump
-                        userData.jumpHeight += userData.jumpSpeed;
-                        dog.position.y = 0.25 + userData.jumpHeight;
-                        
-                        // Move towards player during jump
-                        const jumpDir = new THREE.Vector3()
-                            .subVectors(camera.position, dog.position)
-                            .normalize();
-                        dog.position.add(jumpDir.multiplyScalar(userData.speed * 1.5));
-                        
-                        // End jump when max height reached
-                        if (userData.jumpHeight >= userData.maxJumpHeight) {
-                            userData.isJumping = false;
-                            userData.attackPhase = 'attack';
-                            userData.hasBitten = false;
-                        }
-                    }
-                    break;
-                    
-                case 'attack':
-                    // Bite once when close enough
-                    if (!userData.hasBitten && distanceToPlayer <= userData.attackRange) {
-                        // Deal damage to player
-                        playerHealth -= userData.damage;
-                        updateHealthDisplay();
-                        showDamageMessage(`Dog bit you for ${userData.damage} hearts!`);
-                        
-                        userData.hasBitten = true;
-                        userData.attackPhase = 'retreat';
-                        userData.lastJumpTime = now;
-                    }
-                    break;
-                    
-                case 'retreat':
-                    // Move away from player
-                    const retreatDirection = new THREE.Vector3()
-                        .subVectors(dog.position, camera.position)
-                        .normalize();
-                    dog.position.add(retreatDirection.multiplyScalar(userData.speed * 1.2));
-                    
-                    // After retreating enough distance, prepare for next jump
-                    if (distanceToPlayer >= userData.retreatDistance) {
-                        userData.attackPhase = 'approach';
-                        userData.hasBitten = false;
-                    }
-                    break;
+            // Chase and bite behavior
+            const chaseDirection = new THREE.Vector3()
+                .subVectors(camera.position, dog.position)
+                .normalize();
+            
+            // Move towards player
+            dog.position.add(chaseDirection.multiplyScalar(userData.speed));
+            
+            // Bite when close enough
+            if (distanceToPlayer <= userData.attackRange) {
+                // Deal damage to player
+                playerHealth -= userData.damage;
+                updateHealthDisplay();
+                showDamageMessage(`Dog bit you for ${userData.damage} hearts!`);
+                
+                // Check if player is dead
+                if (playerHealth <= 0) {
+                    gameOver = true;
+                    document.getElementById('finalScore').textContent = score;
+                    document.getElementById('gameOverScreen').style.display = 'flex';
+                }
             }
             break;
     }
     
-    // Keep dog on ground when not jumping
-    if (!userData.isJumping) {
-        dog.position.y = 0.25;
-    }
+    // Keep dog on ground
+    dog.position.y = 0.25;
     
     // Face movement direction
     if (userData.state !== 'idle') {
@@ -2099,7 +2052,7 @@ function updateLeaderDogBehavior(dog, deltaTime) {
                 .subVectors(userData.idlePosition, dog.position)
                 .normalize();
             dog.position.add(directionToIdle.multiplyScalar(userData.speed * deltaTime));
-            dog.position.y = 0.25; // Keep on ground
+            dog.position.y = 0.25;
             break;
             
         case 'alert':
@@ -2108,83 +2061,37 @@ function updateLeaderDogBehavior(dog, deltaTime) {
                 .subVectors(camera.position, dog.position)
                 .normalize();
             dog.position.add(directionToPlayer.multiplyScalar(userData.speed * deltaTime));
-            dog.position.y = 0.25; // Keep on ground
+            dog.position.y = 0.25;
             break;
             
         case 'aggressive':
-            // Attack pattern
-            switch (userData.attackPhase) {
-                case 'approach':
-                    // Move towards player
-                    const approachDir = new THREE.Vector3()
-                        .subVectors(camera.position, dog.position)
-                        .normalize();
-                    dog.position.add(approachDir.multiplyScalar(userData.speed * deltaTime));
-                    dog.position.y = 0.25;
-                    
-                    // Start jump when close enough
-                    if (distanceToPlayer <= userData.attackRange * 1.5) {
-                        userData.attackPhase = 'jump';
-                        userData.isJumping = true;
-                        userData.jumpHeight = 0;
-                        userData.lastJumpTime = Date.now();
-                    }
-                    break;
-                    
-                case 'jump':
-                    if (userData.isJumping) {
-                        // Continue jump
-                        userData.jumpHeight += userData.jumpSpeed;
-                        dog.position.y = 0.25 + userData.jumpHeight;
-                        
-                        // Move towards player during jump
-                        const jumpDir = new THREE.Vector3()
-                            .subVectors(camera.position, dog.position)
-                            .normalize();
-                        dog.position.add(jumpDir.multiplyScalar(userData.speed * 1.5 * deltaTime));
-                        
-                        // End jump when max height reached
-                        if (userData.jumpHeight >= userData.maxJumpHeight) {
-                            userData.isJumping = false;
-                            userData.attackPhase = 'attack';
-                            userData.hasBitten = false;
-                        }
-                    }
-                    break;
-                    
-                case 'attack':
-                    // Bite once when close enough
-                    if (!userData.hasBitten && distanceToPlayer <= userData.attackRange) {
-                        playerHealth -= userData.damage;
-                        userData.hasBitten = true;
-                        showDamageMessage(`Boss dog bit you for ${userData.damage} hearts!`);
-                        updateHealthDisplay();
-                        
-                        // Start retreat after biting
-                        userData.attackPhase = 'retreat';
-                        userData.lastJumpTime = Date.now();
-                    }
-                    break;
-                    
-                case 'retreat':
-                    // Move away from player
-                    const retreatDir = new THREE.Vector3()
-                        .subVectors(dog.position, camera.position)
-                        .normalize();
-                    dog.position.add(retreatDir.multiplyScalar(userData.speed * deltaTime));
-                    dog.position.y = 0.25;
-                    
-                    // Start new jump after cooldown
-                    if (Date.now() - userData.lastJumpTime >= userData.jumpCooldown) {
-                        userData.attackPhase = 'jump';
-                        userData.isJumping = true;
-                        userData.jumpHeight = 0;
-                        userData.lastJumpTime = Date.now();
-                    }
-                    break;
+            // Chase and bite behavior
+            const chaseDirection = new THREE.Vector3()
+                .subVectors(camera.position, dog.position)
+                .normalize();
+            
+            // Move towards player
+            dog.position.add(chaseDirection.multiplyScalar(userData.speed * deltaTime));
+            
+            // Bite when close enough
+            if (distanceToPlayer <= userData.attackRange) {
+                // Deal damage to player
+                playerHealth -= userData.damage;
+                updateHealthDisplay();
+                showDamageMessage(`Boss dog bit you for ${userData.damage} hearts!`);
+                
+                // Check if player is dead
+                if (playerHealth <= 0) {
+                    gameOver = true;
+                    document.getElementById('finalScore').textContent = score;
+                    document.getElementById('gameOverScreen').style.display = 'flex';
+                }
             }
             break;
     }
+    
+    // Keep dog on ground
+    dog.position.y = 0.25;
     
     // Make dog face movement direction
     if (dog.position.x !== dog.userData.lastPosition?.x || 
