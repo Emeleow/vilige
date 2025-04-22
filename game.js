@@ -498,14 +498,13 @@ function createBandages() {
 
 // Create regular dogs
 function createDogs() {
-    for (let i = 0; i < 20; i++) { // Increased from 10 to 20 dogs
+    for (let i = 0; i < 20; i++) {
         let dog;
         
         if (dogModel) {
             dog = dogModel.clone();
-            dog.scale.set(0.3, 0.3, 0.3); // Make dogs smaller
+            dog.scale.set(0.3, 0.3, 0.3);
         } else {
-            // Fallback to simple geometry if model not loaded
             const dogGeometry = new THREE.BoxGeometry(0.5, 0.5, 1);
             const dogMaterial = new THREE.MeshStandardMaterial({ 
                 color: Math.random() < 0.5 ? 0x000000 : 0x8B4513,
@@ -519,7 +518,7 @@ function createDogs() {
         const radius = 15 + Math.random() * 25;
         dog.position.x = Math.cos(angle) * radius;
         dog.position.z = Math.sin(angle) * radius;
-        dog.position.y = 0.25; // Lower to the ground
+        dog.position.y = 0.25;
         
         // Add dog properties
         dog.userData = {
@@ -527,23 +526,24 @@ function createDogs() {
             speed: 0.03 + Math.random() * 0.02,
             type: Math.random() < 0.5 ? 'black' : 'brown',
             lastAttackTime: 0,
-            attackCooldown: 1000 + Math.random() * 500, // 1-1.5 seconds
-            damage: 0.5, // Half a heart
-            attackRange: 1.5 + Math.random() * 0.5, // 1.5-2 units
-            state: 'idle', // idle, alert, aggressive
-            detectionRange: 10 + Math.random() * 5, // 10-15 units
+            attackCooldown: 1000 + Math.random() * 500,
+            damage: 0.5, // Half a heart damage
+            attackRange: 1.5 + Math.random() * 0.5,
+            state: 'idle',
+            detectionRange: 10 + Math.random() * 5,
             idleTime: 0,
-            idleDuration: 2000 + Math.random() * 3000, // 2-5 seconds
+            idleDuration: 2000 + Math.random() * 3000,
             idlePosition: new THREE.Vector3().copy(dog.position),
-            idleRadius: 2 + Math.random() * 3, // 2-5 units
+            idleRadius: 2 + Math.random() * 3,
             isJumping: false,
             jumpHeight: 0,
             maxJumpHeight: 1.5,
             jumpSpeed: 0.1,
-            jumpCooldown: 2000, // 2 seconds between jumps
+            jumpCooldown: 2000,
             lastJumpTime: 0,
-            attackPhase: 'approach', // approach, jump, attack, retreat
-            hasBitten: false // New property to track if dog has bitten
+            attackPhase: 'approach',
+            hasBitten: false,
+            retreatDistance: 2 + Math.random() * 1 // Distance to retreat after biting
         };
         
         dog.castShadow = true;
@@ -565,7 +565,7 @@ function createLeaderDog() {
         health: 30,
         maxHealth: 30,
         speed: 0.15,
-        damage: 1.5,
+        damage: 1.5, // One and a half hearts damage
         attackRange: 2,
         detectionRange: 25,
         shotDetectionRange: 40,
@@ -584,7 +584,8 @@ function createLeaderDog() {
         idleTime: 0,
         idleDuration: 2000,
         idleRadius: 5,
-        idlePosition: new THREE.Vector3()
+        idlePosition: new THREE.Vector3(),
+        retreatDistance: 3 // Distance to retreat after biting
     };
     
     // Position the leader dog
@@ -1544,94 +1545,97 @@ function onWindowResize() {
 function updateDogBehavior(dog) {
     const now = Date.now();
     const distanceToPlayer = dog.position.distanceTo(camera.position);
+    const userData = dog.userData;
     
     // Update dog state based on distance
-    if (distanceToPlayer < dog.userData.detectionRange) {
-        dog.userData.state = 'aggressive';
-    } else if (distanceToPlayer < dog.userData.detectionRange * 1.5) {
-        dog.userData.state = 'alert';
+    if (distanceToPlayer < userData.detectionRange) {
+        userData.state = 'aggressive';
+    } else if (distanceToPlayer < userData.detectionRange * 1.5) {
+        userData.state = 'alert';
     } else {
-        dog.userData.state = 'idle';
+        userData.state = 'idle';
     }
     
     // Handle different states
-    switch (dog.userData.state) {
+    switch (userData.state) {
         case 'idle':
             // Idle behavior - wander around
-            if (now - dog.userData.idleTime > dog.userData.idleDuration) {
-                // Choose new idle position
+            if (now - userData.idleTime > userData.idleDuration) {
                 const angle = Math.random() * Math.PI * 2;
-                const radius = Math.random() * dog.userData.idleRadius;
-                dog.userData.idlePosition.set(
-                    dog.userData.idlePosition.x + Math.cos(angle) * radius,
+                const radius = Math.random() * userData.idleRadius;
+                userData.idlePosition.set(
+                    userData.idlePosition.x + Math.cos(angle) * radius,
                     0.25,
-                    dog.userData.idlePosition.z + Math.sin(angle) * radius
+                    userData.idlePosition.z + Math.sin(angle) * radius
                 );
-                dog.userData.idleTime = now;
+                userData.idleTime = now;
             }
             
-            // Move towards idle position
             const direction = new THREE.Vector3()
-                .subVectors(dog.userData.idlePosition, dog.position)
+                .subVectors(userData.idlePosition, dog.position)
                 .normalize();
-            dog.position.add(direction.multiplyScalar(dog.userData.speed * 0.5));
+            dog.position.add(direction.multiplyScalar(userData.speed * 0.5));
             break;
             
         case 'alert':
-            // Alert behavior - move towards player but maintain distance
+            // Alert behavior - move towards player
             const alertDirection = new THREE.Vector3()
                 .subVectors(camera.position, dog.position)
                 .normalize();
-            dog.position.add(alertDirection.multiplyScalar(dog.userData.speed * 0.7));
+            dog.position.add(alertDirection.multiplyScalar(userData.speed * 0.7));
             break;
             
         case 'aggressive':
-            // Aggressive behavior - attack pattern
-            switch (dog.userData.attackPhase) {
+            // Attack pattern
+            switch (userData.attackPhase) {
                 case 'approach':
                     // Move towards player
                     const approachDirection = new THREE.Vector3()
                         .subVectors(camera.position, dog.position)
                         .normalize();
-                    dog.position.add(approachDirection.multiplyScalar(dog.userData.speed));
+                    dog.position.add(approachDirection.multiplyScalar(userData.speed));
                     
-                    // Check if close enough to jump
-                    if (distanceToPlayer < dog.userData.attackRange * 1.5) {
-                        dog.userData.attackPhase = 'jump';
-                        dog.userData.isJumping = true;
-                        dog.userData.jumpHeight = 0;
-                        dog.userData.lastJumpTime = now;
+                    // Start jump when close enough
+                    if (distanceToPlayer < userData.attackRange * 1.5) {
+                        userData.attackPhase = 'jump';
+                        userData.isJumping = true;
+                        userData.jumpHeight = 0;
+                        userData.lastJumpTime = now;
                     }
                     break;
                     
                 case 'jump':
-                    // Jumping behavior
-                    if (dog.userData.isJumping) {
-                        dog.userData.jumpHeight += dog.userData.jumpSpeed;
-                        dog.position.y = 0.25 + dog.userData.jumpHeight;
+                    if (userData.isJumping) {
+                        // Continue jump
+                        userData.jumpHeight += userData.jumpSpeed;
+                        dog.position.y = 0.25 + userData.jumpHeight;
                         
-                        if (dog.userData.jumpHeight >= dog.userData.maxJumpHeight) {
-                            dog.userData.isJumping = false;
-                            dog.userData.attackPhase = 'attack';
+                        // Move towards player during jump
+                        const jumpDir = new THREE.Vector3()
+                            .subVectors(camera.position, dog.position)
+                            .normalize();
+                        dog.position.add(jumpDir.multiplyScalar(userData.speed * 1.5));
+                        
+                        // End jump when max height reached
+                        if (userData.jumpHeight >= userData.maxJumpHeight) {
+                            userData.isJumping = false;
+                            userData.attackPhase = 'attack';
+                            userData.hasBitten = false;
                         }
                     }
                     break;
                     
                 case 'attack':
-                    // Attack behavior - bite once
-                    if (!dog.userData.hasBitten && distanceToPlayer < dog.userData.attackRange) {
+                    // Bite once when close enough
+                    if (!userData.hasBitten && distanceToPlayer <= userData.attackRange) {
                         // Deal damage to player
-                        playerHealth -= dog.userData.damage;
+                        playerHealth -= userData.damage;
                         updateHealthDisplay();
+                        showDamageMessage(`Dog bit you for ${userData.damage} hearts!`);
                         
-                        // Play bite sound
-                        if (biteSound) {
-                            biteSound.currentTime = 0;
-                            biteSound.play();
-                        }
-                        
-                        dog.userData.hasBitten = true;
-                        dog.userData.attackPhase = 'retreat';
+                        userData.hasBitten = true;
+                        userData.attackPhase = 'retreat';
+                        userData.lastJumpTime = now;
                     }
                     break;
                     
@@ -1640,12 +1644,12 @@ function updateDogBehavior(dog) {
                     const retreatDirection = new THREE.Vector3()
                         .subVectors(dog.position, camera.position)
                         .normalize();
-                    dog.position.add(retreatDirection.multiplyScalar(dog.userData.speed * 1.2));
+                    dog.position.add(retreatDirection.multiplyScalar(userData.speed * 1.2));
                     
-                    // After retreating, reset for next attack
-                    if (distanceToPlayer > dog.userData.attackRange * 2) {
-                        dog.userData.attackPhase = 'approach';
-                        dog.userData.hasBitten = false;
+                    // After retreating enough distance, prepare for next jump
+                    if (distanceToPlayer >= userData.retreatDistance) {
+                        userData.attackPhase = 'approach';
+                        userData.hasBitten = false;
                     }
                     break;
             }
@@ -1653,12 +1657,12 @@ function updateDogBehavior(dog) {
     }
     
     // Keep dog on ground when not jumping
-    if (!dog.userData.isJumping) {
+    if (!userData.isJumping) {
         dog.position.y = 0.25;
     }
     
     // Face movement direction
-    if (dog.userData.state !== 'idle') {
+    if (userData.state !== 'idle') {
         const lookDirection = new THREE.Vector3()
             .subVectors(camera.position, dog.position)
             .normalize();
